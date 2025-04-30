@@ -73,7 +73,7 @@ export const createMessageHandler = (generateText: GenerateTextWithHistory, bot:
     try {
       // Apply random delay for conversation channels (not for direct mentions)
       if (isInConversationChannel && !isMentioned) {
-        await randomDelay(botName, 30, 180);
+        await randomDelay(botName, 60, 300);
       }
       
       // Prepare system prompt
