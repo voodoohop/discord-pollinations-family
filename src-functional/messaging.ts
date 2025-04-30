@@ -27,9 +27,16 @@ export const formatConversationHistory = (messages: Message[], botId: string): A
   return messages
     .filter(msg => msg.content?.trim() && !msg.system)
     .map(msg => {
+      // Treat all messages not from the current bot as user messages
       const role = msg.author.id === botId ? 'assistant' : 'user';
-      const content = msg.content.length > 4000 ? msg.content.substring(0, 4000) + "... [truncated]" : msg.content;
-      return { role, content, name: msg.author.username };
+      let content = msg.content.length > 4000 ? msg.content.substring(0, 4000) + "... [truncated]" : msg.content;
+      
+      // For user messages, prepend the username
+      if (role === 'user') {
+        content = `[${msg.author.username}]:\n${content}`;
+      }
+      
+      return { role, content };
     });
 };
 
