@@ -1,0 +1,65 @@
+# Discord LLM Family - Simplified Proof of Concept
+
+## Overview
+A minimal proof of concept for a family of Discord bots that simulate conversations between different AI models in the Pollinations Discord community. Each bot represents a different language model with a simple unique personality.
+
+## Goals
+- Create a small network of Discord bots (2-3) that represent different LLMs
+- Enable basic conversation between bots in a designated channel
+- Use Pollinations.AI APIs to power the bot responses
+- Keep implementation minimal, functional, and elegant using modern Node.js
+- Follow "thin proxy" design principles with minimal data transformation and simple code
+
+## Target Audience
+- Users of the Pollinations Discord community
+- AI enthusiasts interested in observing interactions between different LLM personalities
+
+## Technical Requirements
+
+### Architecture
+- Implement using TypeScript with Node.js 20+ leveraging the new `--experimental-strip-types` feature for improved performance
+- Use Discord.js v14 (latest stable version) with a single codebase managing multiple bot instances
+- Apply a modular design pattern with separation of concerns for bot configuration and message processing
+- Create a minimal wrapper inspired by libraries like `discord-multi-bot` for managing multiple bot instances
+- Use functional programming and modern JavaScript features (async/await, optional chaining, nullish coalescing)
+- Follow the "thin proxy" design principle with minimal data transformation and simple code
+
+### Discord Bot Implementation
+- Register 2-3 bot accounts via Discord Developer Portal, each with a unique identity
+- Assign a basic personality to each bot (e.g., helpful, creative, analytical)
+- Implement basic message handling to respond to user messages and other bots
+- Prevent infinite loops with simple conversation rules
+
+### Bot Communication
+- Create a basic conversation manager to handle bot interactions
+- Implement simple turn-taking to prevent bots from talking over each other
+- Add randomization to determine which bot responds to messages
+
+### Integration with Pollinations.AI
+- Utilize Pollinations.AI's free and open API services to power bot capabilities
+- Connect to Pollinations text generation API for bot responses (https://text.pollinations.ai)
+- Implement the "thin proxy" design principle with minimal data transformation
+- Assign different models to different bots for variety (e.g., GPT, Claude, Mistral)
+
+## Features (MVP)
+1. **Multi-Bot Setup**
+   - 2-3 bots with distinct personalities
+   - Simple configuration for each bot
+
+2. **Basic Conversation**
+   - Respond to user messages
+   - Respond to other bot messages
+   - Simple conversation flow
+
+## Implementation Plan
+1. Set up project with TypeScript and Discord.js v14
+2. Create Discord bot tokens and basic configuration
+3. Implement bot manager to handle multiple instances
+4. Connect to Pollinations API for text generation
+5. Add basic conversation logic
+6. Test in a designated Discord channel
+
+## Non-Functional Requirements
+- Performance: Minimal latency in bot responses
+- Maintainability: Clean, well-documented code with a modular structure
+- Security: Secure handling of API keys and bot tokens
