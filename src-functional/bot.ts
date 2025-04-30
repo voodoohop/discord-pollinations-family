@@ -1,7 +1,7 @@
-import { Client, Events, GatewayIntentBits } from 'discord.js';
+import { Client, Events, GatewayIntentBits, Message } from 'discord.js';
 import debug from 'debug';
 import { Bot, BotConfig, BotRegistry, GenerateTextWithHistory } from './types';
-import { createMessageHandler } from './messaging';
+import { createMessageHandler, trimMessage } from './messaging';
 
 const log = debug('app:bot');
 
@@ -37,6 +37,27 @@ export const createBot = (
   // Set up message handler
   const handleMessage = createMessageHandler(generateText, bot);
   client.on(Events.MessageCreate, handleMessage);
+  
+  // Intercept all messages being sent to ensure they're trimmed
+  const originalSend = client.rest.post;
+  client.rest.post = function(route, options) {
+    // Check if this is a message being sent
+    if (route.toString().includes('/channels/') && route.toString().includes('/messages')) {
+      try {
+        // If there's content in the request body, trim it
+        if (options?.body && typeof options.body === 'object' && 'content' in options.body) {
+          const content = options.body.content;
+          if (typeof content === 'string' && content.length > 400) {
+            log('Trimming long message from %d to 400 characters', content.length);
+            options.body.content = trimMessage(content);
+          }
+        }
+      } catch (error) {
+        log('Error in message interceptor: %O', error);
+      }
+    }
+    return originalSend.call(this, route, options);
+  };
   
   // Set up ready event
   client.on(Events.ClientReady, async (readyClient) => {

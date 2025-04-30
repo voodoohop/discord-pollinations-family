@@ -141,7 +141,10 @@ Error: ${String(error)}`;
   await message.reply(trimMessage(errorMessage));
 };
 
-function trimMessage(content: string): string {
+/**
+ * Trim a message to a maximum length and add ellipsis if needed
+ */
+export function trimMessage(content: string): string {
   const MAX_LENGTH = 400;
   if (content.length <= MAX_LENGTH) {
     return content;
