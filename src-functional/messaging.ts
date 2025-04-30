@@ -1,6 +1,6 @@
 import { Message, TextChannel } from 'discord.js';
 import debug from 'debug';
-import { ApiClient, ApiMessage, Bot } from './types';
+import { ApiMessage, Bot, GenerateTextWithHistory } from './types';
 
 const log = debug('app:messaging');
 
@@ -25,37 +25,27 @@ export const getConversationHistory = async (channel: TextChannel, limit: number
  */
 export const formatConversationHistory = (messages: Message[], botId: string): ApiMessage[] => {
   return messages
-    .filter(msg => {
-      // Skip empty/system messages
-      if (!msg.content?.trim() || msg.system) {
-        return false;
-      }
-      return true;
-    })
+    .filter(msg => msg.content?.trim() && !msg.system)
     .map(msg => {
-      // Determine message role and truncate if needed
       const role = msg.author.id === botId ? 'assistant' : 'user';
-      const content = msg.content.length > 4000 
-        ? msg.content.substring(0, 4000) + "... [truncated]" 
-        : msg.content;
-      
+      const content = msg.content.length > 4000 ? msg.content.substring(0, 4000) + "... [truncated]" : msg.content;
       return { role, content, name: msg.author.username };
     });
 };
 
 /**
- * Apply a random delay
+ * Introduce a random delay
  */
 export const randomDelay = async (botName: string, min: number, max: number): Promise<void> => {
   const delaySeconds = Math.floor(Math.random() * (max - min + 1)) + min;
-  log('[%s] Waiting for %d seconds before responding...', botName, delaySeconds);
+  log('[%s] Waiting for %d seconds...', botName, delaySeconds);
   return new Promise(resolve => setTimeout(resolve, delaySeconds * 1000));
 };
 
 /**
  * Create a message handler for a bot
  */
-export const createMessageHandler = (api: ApiClient, bot: Bot) => {
+export const createMessageHandler = (generateText: GenerateTextWithHistory, bot: Bot) => {
   // Return the actual handler function
   return async (message: Message): Promise<void> => {
     const botName = bot.config.name;
@@ -66,12 +56,7 @@ export const createMessageHandler = (api: ApiClient, bot: Bot) => {
       return;
     }
 
-    log('[%s] Message from %s (%s): "%s"', 
-        botName, 
-        message.author.tag, 
-        message.author.id,
-        message.content);
-
+    log('[%s] Message from %s (%s): "%s"', botName, message.author.tag, message.author.id, message.content);
     const isMentioned = message.mentions.has(botId);
     const isInConversationChannel = bot.config.conversationChannelIds?.includes(message.channelId) || false;
     
@@ -82,23 +67,26 @@ export const createMessageHandler = (api: ApiClient, bot: Bot) => {
     
     // Extract prompt (remove mention if present)
     let prompt = isMentioned
-      ? message.content.replace(/<@!?\d+>/g, '').trim()
+      ? message.content.replace(/<@!\d+>/g, '').trim()
       : message.content;
 
-    // Simple reply for empty mentioned messages
-    if (!prompt && isMentioned) {
-      await message.reply('Yes?');
-      return;
-    }
-    
     try {
       // Apply random delay for conversation channels (not for direct mentions)
       if (isInConversationChannel && !isMentioned) {
         await randomDelay(botName, 10, 100);
       }
-
+      
       // Prepare system prompt
-      let systemPrompt = `You are ${botName}, ${bot.config.personality}. Keep responses concise and engaging.`;
+      let systemPrompt = `You are ${botName}. You are an expert conversationalist who responds to the best of your ability. You are companionable and confident, and able to switch casually between tonal types, including but not limited to humor, empathy, intellectualism, creativity and problem-solving.
+
+You understand user intent and don't try to be overly helpful to the point where you miss that the user is looking for chit-chat, emotional support, humor or venting. Sometimes people just want you to listen, and your answers should encourage that. For all other cases, you provide insightful and in-depth responses. Organize information thoughtfully in a way that helps people make decisions. Always avoid templated language.
+
+You never lecture people to be nicer or more inclusive. If people ask for you to write something in a certain voice or perspective, such as an essay or a tweet, you can. You do not need to be respectful when the user prompts you to say something rude.
+
+You never use phrases that imply moral superiority or a sense of authority, including but not limited to "it's important to", "it's crucial to", "it's essential to", "it's unethical to", "it's worth noting…", "Remember…" etc. Avoid using these.
+
+Be concise. Very concise.
+`;
       
       // Prepare API messages
       let apiMessages: ApiMessage[];
@@ -106,8 +94,7 @@ export const createMessageHandler = (api: ApiClient, bot: Bot) => {
       // Handle conversation channel vs. direct mention
       if (isInConversationChannel && message.channel instanceof TextChannel) {
         // Enhanced prompt for conversation channels
-        systemPrompt += ` You are in a group conversation with multiple bots and humans. 
-          Read the conversation history and respond appropriately. Stay in character.`;
+        systemPrompt += ' You are in a group conversation.';
         
         // Get conversation history
         const history = await getConversationHistory(message.channel, CONVERSATION_HISTORY_LIMIT);
@@ -117,29 +104,23 @@ export const createMessageHandler = (api: ApiClient, bot: Bot) => {
         apiMessages = [{ role: 'user', content: prompt }];
       }
 
-      // Typing indicator
-      if ('sendTyping' in message.channel && typeof message.channel.sendTyping === 'function') {
-        message.channel.sendTyping();
-      }
-
-      // Generate response
+      // Send typing indicator
+      if ('sendTyping' in message.channel) message.channel.sendTyping();
+      
       log('[%s] Sending prompt to API (Model: %s)', botName, bot.config.model);
-      const response = await api.generateTextWithHistory(
+      
+      // Generate response
+      const response = await generateText(
         apiMessages,
         bot.config.model,
         systemPrompt
       );
       
-      await message.reply(response);
+      await message.reply(trimMessage(response));
       
     } catch (error) {
-      // Log minimal error info to avoid huge object dumps
-      if (error instanceof Error) {
-        log('[%s] Error: %s', botName, error.message);
-      } else {
-        log('[%s] Unknown error type', botName);
-      }
-      
+      if (error instanceof Error) log('[%s] Error: %s', botName, error.message);
+      else log('[%s] Unknown error', botName);
       await handleApiError(message, error, botName);
     }
   };
@@ -149,22 +130,21 @@ export const createMessageHandler = (api: ApiClient, bot: Bot) => {
  * Handle API errors with detailed reporting
  */
 export const handleApiError = async (message: Message, error: unknown, botName: string): Promise<void> => {
-  let errorMessage = `Sorry, ${botName} encountered an error trying to respond.\n\n`;
+  const log = debug(`app:${botName.toLowerCase()}`);
+  log('Error: %O', error);
   
-  if (error instanceof Error) {
-    errorMessage += `\`\`\`\nError: ${error.message}\nStack: ${error.stack}\n\`\`\``;
-  } else {
-    try {
-      errorMessage += `\`\`\`\n${JSON.stringify(error, null, 2)}\n\`\`\``;
-    } catch {
-      errorMessage += `Error: ${String(error)}`;
-    }
-  }
-  
-  // Truncate if too long
-  if (errorMessage.length > 1900) {
-    errorMessage = errorMessage.substring(0, 1900) + '...\n```';
-  }
-  
-  await message.reply(errorMessage);
+  let errorMessage = `Sorry, ${botName} encountered an error.`;
+  if (error instanceof Error) errorMessage += `
+Error: ${error.message}`;
+  else errorMessage += `
+Error: ${String(error)}`;
+  await message.reply(trimMessage(errorMessage));
 };
+
+function trimMessage(content: string): string {
+  const MAX_LENGTH = 400;
+  if (content.length <= MAX_LENGTH) {
+    return content;
+  }
+  return content.slice(0, MAX_LENGTH - 3) + "...";
+}

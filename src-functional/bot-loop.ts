@@ -1,6 +1,6 @@
 import { Client, Events, GatewayIntentBits, Message, TextChannel } from 'discord.js';
 import debug from 'debug';
-import { ApiClient, ApiMessage, Bot, BotConfig } from './types';
+import { ApiMessage, Bot, BotConfig, GenerateTextWithHistory } from './types';
 
 const log = debug('app:bot');
 const HISTORY_LIMIT = 10;
@@ -19,9 +19,9 @@ const clientOptions = {
  * Create message stream from Discord events
  */
 async function* messageStream(client: Client) {
-  let resolver;
-  const getNextMessage = () => new Promise(resolve => { resolver = resolve; });
-  client.on(Events.MessageCreate, msg => resolver && resolver(msg));
+  let resolver: (msg: Message) => void;
+  const getNextMessage = () => new Promise<Message>(resolve => { resolver = resolve; });
+  client.on(Events.MessageCreate, (msg: Message) => resolver && resolver(msg));
   
   while (true) {
     yield await getNextMessage();
@@ -44,7 +44,7 @@ function formatHistory(messages: Message[], botId: string): ApiMessage[] {
 /**
  * Run a single bot as an infinite loop
  */
-export async function runBot(config: BotConfig, api: ApiClient): Promise<never> {
+export async function runBot(config: BotConfig, generateText: GenerateTextWithHistory): Promise<never> {
   // Create and login client
   const client = new Client(clientOptions);
   await client.login(config.token);
@@ -64,23 +64,29 @@ export async function runBot(config: BotConfig, api: ApiClient): Promise<never> 
   // Create message stream and process in loop
   for await (const msg of messageStream(client)) {
     try {
+      log('Received message in channel %s from %s: %s', msg.channelId, msg.author.username, msg.content);
       // Skip own messages
-      if (msg.author.id === client.user?.id) continue;
+      if (!client.user || msg.author.id === client.user.id) continue;
       
       // Only respond to mentions or in conversation channels
-      const isMentioned = msg.mentions.has(client.user?.id);
+      const isMentioned = msg.mentions.has(client.user.id);
       const isConvoChannel = config.conversationChannelIds?.includes(msg.channelId);
-      if (!isMentioned && !isConvoChannel) continue;
+      if (!isMentioned && !isConvoChannel) {
+        log('Message ignored: not mentioned and not in conversation channel');
+        continue;
+      }
+      
+      log('Processing message: %s (Mentioned: %s, Conversation Channel: %s)', msg.content, isMentioned, isConvoChannel);
       
       // Random delay for conversation messages (not mentions)
       if (isConvoChannel && !isMentioned) {
-        const delay = Math.floor(Math.random() * 90) + 10;
+        const delay = Math.floor(Math.random() * 100) + 1; // Reduced delay for debugging
         await new Promise(r => setTimeout(r, delay * 1000));
+        log('Applied random delay of %d seconds', delay);
       }
       
       // Get system prompt and conversation history
-      const systemPrompt = `You are ${config.name}, ${config.personality}. 
-                           ${isConvoChannel ? 'You are in a group conversation.' : ''}`;
+      const systemPrompt = `You are ${config.name}.`;
       
       let apiMessages;
       
@@ -88,35 +94,46 @@ export async function runBot(config: BotConfig, api: ApiClient): Promise<never> 
       if (isConvoChannel && msg.channel instanceof TextChannel) {
         const history = await msg.channel.messages.fetch({ limit: HISTORY_LIMIT });
         apiMessages = formatHistory(Array.from(history.values()).reverse(), client.user.id);
+        log('Fetched conversation history for channel %s', msg.channelId);
       } else {
         const content = isMentioned 
-          ? msg.content.replace(/<@!?\d+>/g, '').trim() 
+          ? msg.content.replace(/<@!\d+>/g, '').trim() 
           : msg.content;
         
         // Quick reply for empty mentions
         if (isMentioned && !content) {
+          log('Sending simple response for empty mention');
           msg.reply('Yes?');
           continue;
         }
         
         apiMessages = [{ role: 'user', content }];
+        log('Using direct message content: %s', content);
       }
       
-      // Show typing indicator
-      msg.channel.sendTyping?.();
-      
       // Generate and send response
-      const response = await api.generateTextWithHistory(
+      if ('sendTyping' in msg.channel && typeof msg.channel.sendTyping === 'function') {
+        msg.channel.sendTyping();
+        log('Sending typing indicator');
+      }
+      
+      log('Generating response with model %s', config.model);
+      const response = await generateText(
         apiMessages,
         config.model,
         systemPrompt
       );
       
-      if (response) msg.reply(response);
+      if (response) {
+        log('Sending response: %s', response);
+        msg.reply(response);
+      } else {
+        log('No response generated');
+      }
       
     } catch (e) {
       // Minimal error handling - just log and continue
-      log('Error: %s', e?.message || e);
+      log('Error: %O', e);
     }
   }
   
@@ -126,6 +143,6 @@ export async function runBot(config: BotConfig, api: ApiClient): Promise<never> 
 /**
  * Run multiple bots in parallel
  */
-export async function runBots(configs: BotConfig[], api: ApiClient): Promise<void> {
-  await Promise.all(configs.map(config => runBot(config, api)));
+export async function runBots(configs: BotConfig[], generateText: GenerateTextWithHistory): Promise<void> {
+  await Promise.all(configs.map(config => runBot(config, generateText)));
 }

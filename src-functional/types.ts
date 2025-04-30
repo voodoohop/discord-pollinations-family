@@ -36,9 +36,10 @@ export type ApiMessage = {
 };
 
 /**
- * API Client type
+ * Generate text function signature
  */
-export type ApiClient = {
-  generateText: (prompt: string, model: string, systemPrompt?: string) => Promise<string>;
-  generateTextWithHistory: (messages: ApiMessage[], model: string, systemPrompt?: string) => Promise<string>;
-};
+export type GenerateTextWithHistory = (
+  messages: ApiMessage[], 
+  model: string, 
+  systemPrompt?: string
+) => Promise<string>;

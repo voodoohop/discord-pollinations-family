@@ -1,6 +1,6 @@
 import { Client, Events, GatewayIntentBits } from 'discord.js';
 import debug from 'debug';
-import { ApiClient, Bot, BotConfig, BotRegistry } from './types';
+import { Bot, BotConfig, BotRegistry, GenerateTextWithHistory } from './types';
 import { createMessageHandler } from './messaging';
 
 const log = debug('app:bot');
@@ -26,7 +26,7 @@ export const createBotRegistry = (): BotRegistry => ({});
 export const createBot = (
   registry: BotRegistry, 
   config: BotConfig, 
-  api: ApiClient
+  generateText: GenerateTextWithHistory
 ): void => {
   // Create Discord client
   const client = new Client(clientOptions);
@@ -35,7 +35,7 @@ export const createBot = (
   const bot: Bot = { client, config };
   
   // Set up message handler
-  const handleMessage = createMessageHandler(api, bot);
+  const handleMessage = createMessageHandler(generateText, bot);
   client.on(Events.MessageCreate, handleMessage);
   
   // Set up ready event
