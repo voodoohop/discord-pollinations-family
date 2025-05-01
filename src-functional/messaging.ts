@@ -57,6 +57,11 @@ export const createMessageHandler = (
         msg.channel.sendTyping();
       }
       
+      // Add a random delay for all messages (including mentions)
+      const delay = Math.floor(Math.random() * 2) + 1; // 1-3 second delay
+      await new Promise(r => setTimeout(r, delay * 1000));
+      log('Applied random delay of %d seconds', delay);
+      
       // Generate response
       const systemPrompt = `You are ${bot.config.name}.`;
       const apiMessage: ApiMessage = { role: 'user', content };
