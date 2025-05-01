@@ -5,6 +5,9 @@ import { ApiMessage, Bot, BotConfig, GenerateTextWithHistory } from './types';
 const log = debug('app:bot');
 const HISTORY_LIMIT = 10;
 
+// Map of Discord user IDs to model names
+const botModelMap = new Map<string, string>();
+
 // Discord client options
 const clientOptions = {
   intents: [
@@ -31,14 +34,19 @@ async function* messageStream(client: Client) {
 /**
  * Format conversation history for API
  */
-function formatHistory(messages: Message[], botId: string): ApiMessage[] {
+function formatHistory(messages: Message[], botId: string, config: BotConfig): ApiMessage[] {
   return messages
     .filter(msg => msg.content?.trim() && !msg.system)
-    .map(msg => ({
-      role: msg.author.id === botId ? 'assistant' : 'user',
-      content: msg.content.length > 4000 ? msg.content.slice(0, 4000) + '...' : msg.content,
-      name: msg.author.username
-    }));
+    .map(msg => {
+      const isBot = botModelMap.has(msg.author.id);
+      const name = isBot ? botModelMap.get(msg.author.id) : msg.author.username;
+      const content = msg.content.length > 4000 ? msg.content.slice(0, 4000) + '...' : msg.content;
+      
+      return {
+        role: msg.author.id === botId ? 'assistant' : 'user',
+        content: `[${name}]:\n${content}`
+      };
+    });
 }
 
 /**
@@ -52,6 +60,10 @@ async function handleClientReady(readyClient: Client, config: BotConfig) {
   
   log('Bot %s ready as %s', config.name, readyClient.user.tag);
   console.log(`${config.name} is online!`);
+  
+  // Add bot to the model map
+  botModelMap.set(readyClient.user.id, config.model);
+  log('Added bot %s to model map with model %s', readyClient.user.tag, config.model);
   
   // Set nickname to model name
   for (const guild of readyClient.guilds.cache.values()) {
@@ -92,26 +104,19 @@ async function processMessage(
     }
     
     // Get system prompt and conversation history
-    const systemPrompt = `You are ${config.name}.`;
+    const systemPrompt = `You are ${config.model}.`;
     
     let apiMessages;
     
     // Get conversation history or just current message
     if (isConvoChannel && msg.channel instanceof TextChannel) {
       const history = await msg.channel.messages.fetch({ limit: HISTORY_LIMIT });
-      apiMessages = formatHistory(Array.from(history.values()).reverse(), client.user.id);
+      apiMessages = formatHistory(Array.from(history.values()).reverse(), client.user.id, config);
       log('Fetched conversation history for channel %s', msg.channelId);
     } else {
       const content = isMentioned 
         ? msg.content.replace(/<@!\d+>/g, '').trim() 
         : msg.content;
-      
-      // Quick reply for empty mentions
-      if (isMentioned && !content) {
-        log('Sending simple response for empty mention');
-        msg.reply('Yes?');
-        return;
-      }
       
       apiMessages = [{ role: 'user', content }];
       log('Using direct message content: %s', content);
