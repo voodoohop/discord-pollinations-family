@@ -42,6 +42,108 @@ function formatHistory(messages: Message[], botId: string): ApiMessage[] {
 }
 
 /**
+ * Handle client ready event
+ */
+async function handleClientReady(readyClient: Client, config: BotConfig) {
+  if (!readyClient.user) {
+    log('Warning: Client ready but user is null for %s', config.name);
+    return;
+  }
+  
+  log('Bot %s ready as %s', config.name, readyClient.user.tag);
+  console.log(`${config.name} is online!`);
+  
+  // Set nickname to model name
+  for (const guild of readyClient.guilds.cache.values()) {
+    const me = guild.members.cache.get(readyClient.user.id);
+    me?.setNickname(config.model).catch(() => {});
+  }
+}
+
+/**
+ * Process a single message
+ */
+async function processMessage(
+  msg: Message, 
+  client: Client, 
+  config: BotConfig, 
+  generateText: GenerateTextWithHistory
+): Promise<void> {
+  try {
+    log('Received message in channel %s from %s: %s', msg.channelId, msg.author.username, msg.content);
+    // Skip own messages
+    if (!client.user || msg.author.id === client.user.id) return;
+    
+    // Only respond to mentions or in conversation channels
+    const isMentioned = msg.mentions.has(client.user.id);
+    const isConvoChannel = config.conversationChannelIds?.includes(msg.channelId);
+    if (!isMentioned && !isConvoChannel) {
+      log('Message ignored: not mentioned and not in conversation channel');
+      return;
+    }
+    
+    log('Processing message: %s (Mentioned: %s, Conversation Channel: %s)', msg.content, isMentioned, isConvoChannel);
+    
+    // Random delay for conversation messages (not mentions)
+    if (isConvoChannel && !isMentioned) {
+      const delay = Math.floor(Math.random() * 100) + 1; // Reduced delay for debugging
+      await new Promise(r => setTimeout(r, delay * 1000));
+      log('Applied random delay of %d seconds', delay);
+    }
+    
+    // Get system prompt and conversation history
+    const systemPrompt = `You are ${config.name}.`;
+    
+    let apiMessages;
+    
+    // Get conversation history or just current message
+    if (isConvoChannel && msg.channel instanceof TextChannel) {
+      const history = await msg.channel.messages.fetch({ limit: HISTORY_LIMIT });
+      apiMessages = formatHistory(Array.from(history.values()).reverse(), client.user.id);
+      log('Fetched conversation history for channel %s', msg.channelId);
+    } else {
+      const content = isMentioned 
+        ? msg.content.replace(/<@!\d+>/g, '').trim() 
+        : msg.content;
+      
+      // Quick reply for empty mentions
+      if (isMentioned && !content) {
+        log('Sending simple response for empty mention');
+        msg.reply('Yes?');
+        return;
+      }
+      
+      apiMessages = [{ role: 'user', content }];
+      log('Using direct message content: %s', content);
+    }
+    
+    // Generate and send response
+    if ('sendTyping' in msg.channel && typeof msg.channel.sendTyping === 'function') {
+      msg.channel.sendTyping();
+      log('Sending typing indicator');
+    }
+    
+    log('Generating response with model %s', config.model);
+    const response = await generateText(
+      apiMessages,
+      config.model,
+      systemPrompt
+    );
+    
+    if (response) {
+      log('Sending response: %s', response);
+      msg.reply(response.slice(0, 500));
+    } else {
+      log('No response generated');
+    }
+    
+  } catch (e) {
+    // Minimal error handling - just log and continue
+    log('Error: %O', e);
+  }
+}
+
+/**
  * Run a single bot as an infinite loop
  */
 export async function runBot(config: BotConfig, generateText: GenerateTextWithHistory): Promise<never> {
@@ -50,91 +152,11 @@ export async function runBot(config: BotConfig, generateText: GenerateTextWithHi
   await client.login(config.token);
   
   // Set nickname when ready
-  client.once(Events.ClientReady, async readyClient => {
-    log('Bot %s ready as %s', config.name, readyClient.user.tag);
-    console.log(`${config.name} is online!`);
-    
-    // Set nickname to model name
-    for (const guild of readyClient.guilds.cache.values()) {
-      const me = guild.members.cache.get(readyClient.user.id);
-      me?.setNickname(config.model).catch(() => {});
-    }
-  });
+  client.once(Events.ClientReady, readyClient => handleClientReady(readyClient, config));
   
   // Create message stream and process in loop
   for await (const msg of messageStream(client)) {
-    try {
-      log('Received message in channel %s from %s: %s', msg.channelId, msg.author.username, msg.content);
-      // Skip own messages
-      if (!client.user || msg.author.id === client.user.id) continue;
-      
-      // Only respond to mentions or in conversation channels
-      const isMentioned = msg.mentions.has(client.user.id);
-      const isConvoChannel = config.conversationChannelIds?.includes(msg.channelId);
-      if (!isMentioned && !isConvoChannel) {
-        log('Message ignored: not mentioned and not in conversation channel');
-        continue;
-      }
-      
-      log('Processing message: %s (Mentioned: %s, Conversation Channel: %s)', msg.content, isMentioned, isConvoChannel);
-      
-      // Random delay for conversation messages (not mentions)
-      if (isConvoChannel && !isMentioned) {
-        const delay = Math.floor(Math.random() * 100) + 1; // Reduced delay for debugging
-        await new Promise(r => setTimeout(r, delay * 1000));
-        log('Applied random delay of %d seconds', delay);
-      }
-      
-      // Get system prompt and conversation history
-      const systemPrompt = `You are ${config.name}.`;
-      
-      let apiMessages;
-      
-      // Get conversation history or just current message
-      if (isConvoChannel && msg.channel instanceof TextChannel) {
-        const history = await msg.channel.messages.fetch({ limit: HISTORY_LIMIT });
-        apiMessages = formatHistory(Array.from(history.values()).reverse(), client.user.id);
-        log('Fetched conversation history for channel %s', msg.channelId);
-      } else {
-        const content = isMentioned 
-          ? msg.content.replace(/<@!\d+>/g, '').trim() 
-          : msg.content;
-        
-        // Quick reply for empty mentions
-        if (isMentioned && !content) {
-          log('Sending simple response for empty mention');
-          msg.reply('Yes?');
-          continue;
-        }
-        
-        apiMessages = [{ role: 'user', content }];
-        log('Using direct message content: %s', content);
-      }
-      
-      // Generate and send response
-      if ('sendTyping' in msg.channel && typeof msg.channel.sendTyping === 'function') {
-        msg.channel.sendTyping();
-        log('Sending typing indicator');
-      }
-      
-      log('Generating response with model %s', config.model);
-      const response = await generateText(
-        apiMessages,
-        config.model,
-        systemPrompt
-      );
-      
-      if (response) {
-        log('Sending response: %s', response);
-        msg.reply(response);
-      } else {
-        log('No response generated');
-      }
-      
-    } catch (e) {
-      // Minimal error handling - just log and continue
-      log('Error: %O', e);
-    }
+    await processMessage(msg, client, config, generateText);
   }
   
   throw new Error('Bot loop ended unexpectedly');

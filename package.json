@@ -4,12 +4,13 @@
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "start": "ts-node src/index.ts",
-    "dev": "ts-node-dev --respawn src/index.ts",
+    "start": "ts-node src-functional/index.ts",
+    "dev": "ts-node-dev --respawn src-functional/index.ts",
     "build": "tsc",
     "serve": "node dist/index.js",
-    "test-bot": "ts-node src/test-bot.ts",
-    "generate-invite": "ts-node src/generate-invite.ts"
+    "test-bot": "ts-node src-functional/index.ts",
+    "generate-invite": "ts-node src-functional/index.ts",
+    "restart": "npx nodemon --exec \"DEBUG=* npx ts-node src-functional/index.ts\" --ext ts --ignore node_modules/ --no-stdin --delay 1 --exitcrash"
   },
   "keywords": [],
   "author": "",

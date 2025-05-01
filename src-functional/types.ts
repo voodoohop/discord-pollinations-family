@@ -22,9 +22,7 @@ export type Bot = {
 /**
  * Registry of active bots
  */
-export type BotRegistry = {
-  [name: string]: Bot;
-};
+export type BotRegistry = Map<string, Bot>;
 
 /**
  * API Message format for the Pollinations API

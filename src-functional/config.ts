@@ -40,6 +40,15 @@ export const loadBotConfigs = (): BotConfig[] => {
     const personality = process.env[`BOT_PERSONALITY_${i}`] || 'A helpful AI assistant';
     const model = process.env[`BOT_MODEL_${i}`] || 'deepseek';
     
+    // Validate required fields
+    if (!name.trim()) {
+      log(`Warning: Bot ${i} has an empty name, using default`);
+    }
+    
+    if (!model.trim()) {
+      log(`Warning: Bot ${i} has an empty model name, using default`);
+    }
+    
     // Check for bot-specific conversation channels
     let conversationChannelIds = [...globalConversationChannels];
     const botSpecificChannels = process.env[`BOT_CONVERSATION_CHANNELS_${i}`];
@@ -65,5 +74,11 @@ export const loadBotConfigs = (): BotConfig[] => {
   }
   
   log(`Found ${configs.length} bot configurations.`);
+  
+  // Validate we have at least one bot
+  if (configs.length === 0) {
+    log('Warning: No bot configurations found. Check your environment variables.');
+  }
+  
   return configs;
 };
