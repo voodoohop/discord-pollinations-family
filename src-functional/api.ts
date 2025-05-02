@@ -4,16 +4,52 @@ import { GenerateTextWithHistory, ApiMessage } from './types';
 
 const log = debug('app:api');
 
+// Timeout duration in milliseconds
+const API_TIMEOUT_MS = 20000; // 20 seconds
+
 /**
  * Create a text generation function for the Pollinations API
  */
 export const createGenerateTextWithHistory = (baseUrl: string): GenerateTextWithHistory => {
   log('API Client created with baseUrl: %s', baseUrl);
 
+  // Semaphore to control concurrency
+  let isRequestInProgress = false;
+  const requestQueue: Array<() => void> = [];
+
+  // Function to acquire the semaphore
+  const acquireSemaphore = async (): Promise<void> => {
+    if (!isRequestInProgress) {
+      isRequestInProgress = true;
+      return;
+    }
+
+    // If a request is already in progress, wait for it to complete
+    return new Promise<void>(resolve => {
+      requestQueue.push(resolve);
+    });
+  };
+
+  // Function to release the semaphore
+  const releaseSemaphore = (): void => {
+    const nextRequest = requestQueue.shift();
+    if (nextRequest) {
+      // Process the next request in the queue
+      nextRequest();
+    } else {
+      // No more requests in the queue
+      isRequestInProgress = false;
+    }
+  };
+
   /**
    * Generate text using conversation history
    */
   return async (messages: ApiMessage[], model: string, systemPrompt?: string): Promise<string> => {
+    // Wait for any ongoing request to complete
+    await acquireSemaphore();
+    log('Acquired semaphore for model %s', model);
+
     const url = `${baseUrl}/chat/completions`;
     const apiMessages = [
       ...(systemPrompt ? [{ role: 'system', content: systemPrompt }] : []),
@@ -30,14 +66,48 @@ export const createGenerateTextWithHistory = (baseUrl: string): GenerateTextWith
     log('Equivalent curl command:\n%s', curlCommand);
 
     try {
-      const response = await axios.post(url, requestData, {
+      // Create a promise that will reject after the timeout
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        setTimeout(() => {
+          reject(new Error(`Request timed out after ${API_TIMEOUT_MS}ms`));
+        }, API_TIMEOUT_MS);
+      });
+
+      // Create the actual request promise
+      const requestPromise = axios.post(url, requestData, {
         headers: {
           'Referer': 'roblox',
           'Content-Type': 'application/json'
         }
       });
+
+      // Race the request against the timeout
+      const response = await Promise.race([requestPromise, timeoutPromise]);
+
+      // Release the semaphore for the next request
+      releaseSemaphore();
+      log('Released semaphore for model %s', model);
+
       return response.data.choices[0].message.content;
     } catch (error: any) {
+      // Check if this is a timeout error
+      if (error.message && error.message.includes('Request timed out')) {
+        log('Request timed out after %dms', API_TIMEOUT_MS);
+        // Wait 60 seconds before allowing the next request
+        log('Waiting 60 seconds before allowing next request...');
+        await new Promise(resolve => setTimeout(resolve, 60000));
+        log('Wait complete, next request can now be processed');
+
+        // Release the semaphore after waiting
+        releaseSemaphore();
+        log('Released semaphore for model %s after timeout and wait', model);
+
+        return ""; // Return empty string instead of error message
+      }
+
+      // For other errors, release the semaphore immediately
+      releaseSemaphore();
+      log('Released semaphore for model %s after error', model);
       // Log error with more context
       log('=== API ERROR DETAILS ===');
       log('Error Type: %s', error.name || 'Unknown Error Type');
@@ -103,7 +173,13 @@ export const createGenerateTextWithHistory = (baseUrl: string): GenerateTextWith
 
       log('=== END API ERROR DETAILS ===');
 
-      return "Sorry, I encountered an error processing your request.";
+      // Wait 60 seconds before allowing the next request
+      log('Waiting 60 seconds before allowing next request...');
+      await new Promise(resolve => setTimeout(resolve, 60000));
+      log('Wait complete, next request can now be processed');
+
+      // Note: We've already released the semaphore earlier, so no need to release it again here
+      return ""; // Return empty string instead of error message
     }
   };
 };

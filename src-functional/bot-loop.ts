@@ -157,7 +157,7 @@ async function processMessage(
       systemPrompt
     );
 
-    if (response) {
+    if (response && response.trim()) {
       // First, try to strip out the exact model name prefix
       const exactModelNamePattern = new RegExp(`^\\s*\\[\\s*${config.model}\\s*\\]\\s*:\\s*\\n`, 'i');
       if (exactModelNamePattern.test(response)) {
@@ -175,7 +175,8 @@ async function processMessage(
       log('Sending response: %s', response);
       msg.reply(response.slice(0, 800));
     } else {
-      log('No response generated');
+      // If response is empty or null, don't send anything
+      log('No response generated or empty response received');
     }
 
   } catch (e) {
