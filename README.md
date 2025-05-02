@@ -7,6 +7,7 @@ A minimal proof of concept for a family of Discord bots that simulate conversati
 - Multiple Discord bots managed from a single codebase
 - Integration with Pollinations.AI text generation API
 - Simple personality framework for each bot
+- Dynamic bot avatars generated using Pollinations.AI image API
 - Basic conversation capabilities
 - Conversation channels where bots respond to all messages (not just mentions)
 - Conversation history feature for bots to see and respond to the full conversation context
@@ -106,7 +107,7 @@ BOT_CONVERSATION_CHANNELS_1=channel-id-1,channel-id-2
 
 You can configure specific channels where bots will respond to all messages (not just when mentioned):
 
-1. **Finding Channel IDs**: 
+1. **Finding Channel IDs**:
    - Enable Developer Mode in Discord (User Settings > Advanced > Developer Mode)
    - Right-click on a channel and select "Copy ID"
 
@@ -115,7 +116,7 @@ You can configure specific channels where bots will respond to all messages (not
      ```
      CONVERSATION_CHANNELS=1234567890123456789,9876543210987654321
      ```
-   
+
    - **Bot-specific Settings** (overrides global setting for individual bots):
      ```
      BOT_CONVERSATION_CHANNELS_1=1234567890123456789
@@ -140,6 +141,13 @@ You can configure specific channels where bots will respond to all messages (not
    - Each bot maintains its own personality and character throughout the conversation
    - The random response delay creates more natural-feeling conversations between bots
    - Bots receive special system instructions to be aware they're in a group conversation
+
+5. **Dynamic Avatars**:
+   - Each bot automatically gets a unique avatar generated using the Pollinations.AI image API
+   - Avatars are created based on the bot's model name
+   - The system uses a prompt like "minimalist elegant black and white avatar for model [modelName]"
+   - Avatars are set when the bot starts up
+   - This gives each bot a distinct visual identity that matches its model name
 
 ## Debugging
 

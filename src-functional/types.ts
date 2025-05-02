@@ -37,7 +37,7 @@ export type ApiMessage = {
  * Generate text function signature
  */
 export type GenerateTextWithHistory = (
-  messages: ApiMessage[], 
-  model: string, 
+  messages: ApiMessage[],
+  model: string,
   systemPrompt?: string
 ) => Promise<string>;
