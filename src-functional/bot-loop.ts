@@ -58,8 +58,12 @@ async function handleClientReady(readyClient: Client, config: BotConfig) {
     return;
   }
 
+  // Count the number of guilds the bot is in
+  const guildCount = readyClient.guilds.cache.size;
+  const guildNames = Array.from(readyClient.guilds.cache.values()).map(guild => guild.name);
+
   log('Bot %s ready as %s', config.name, readyClient.user.tag);
-  console.log(`${config.name} is online!`);
+  console.log(`${config.name} is online in ${guildCount} servers: ${guildNames.join(', ')}`);
 
   // Add bot to the model map
   botModelMap.set(readyClient.user.id, config.model);
@@ -111,6 +115,20 @@ async function processMessage(
     // Only respond to mentions or in conversation channels
     const isMentioned = msg.mentions.has(client.user.id);
     const isConvoChannel = config.conversationChannelIds?.includes(msg.channelId);
+
+    // Check for !guilds command
+    if (msg.content.trim().toLowerCase() === '!guilds' && client.user) {
+      const guildCount = client.guilds.cache.size;
+      const guildList = Array.from(client.guilds.cache.values())
+        .map(guild => `${guild.name} (${guild.memberCount} members)`)
+        .join('\n- ');
+
+      const response = `I am in ${guildCount} servers:\n- ${guildList}`;
+      msg.reply(response);
+      log('Responded to !guilds command');
+      return;
+    }
+
     if (!isMentioned && !isConvoChannel) {
       log('Message ignored: not mentioned and not in conversation channel');
       return;
