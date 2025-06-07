@@ -1,4 +1,4 @@
-import { Client, Events, GatewayIntentBits, Message, TextChannel } from 'discord.js';
+import { Client, Events, GatewayIntentBits, Message, TextChannel, ChannelType, Partials } from 'discord.js';
 import debug from 'debug';
 import { ApiMessage, Bot, BotConfig, GenerateTextWithHistory } from './types';
 
@@ -16,6 +16,7 @@ const clientOptions = {
     GatewayIntentBits.MessageContent,
     GatewayIntentBits.DirectMessages,
   ],
+  partials: [Partials.Channel, Partials.Message], // Required for DM handling
 };
 
 /**
@@ -112,7 +113,10 @@ async function processMessage(
     // Skip own messages
     if (!client.user || msg.author.id === client.user.id) return;
 
-    // Only respond to mentions or in conversation channels
+    // Check if it's a DM
+    const isDM = msg.channel.type === ChannelType.DM;
+    
+    // Only respond to mentions, in conversation channels, or DMs
     const isMentioned = msg.mentions.has(client.user.id);
     const isConvoChannel = config.conversationChannelIds?.includes(msg.channelId);
 
@@ -129,27 +133,29 @@ async function processMessage(
       return;
     }
 
-    if (!isMentioned && !isConvoChannel) {
-      log('Message ignored: not mentioned and not in conversation channel');
+    if (!isMentioned && !isConvoChannel && !isDM) {
+      log('Message ignored: not mentioned, not in conversation channel, and not a DM');
       return;
     }
 
-    log('Processing message: %s (Mentioned: %s, Conversation Channel: %s)', msg.content, isMentioned, isConvoChannel);
+    log('Processing message: %s (Mentioned: %s, Conversation Channel: %s, DM: %s)', msg.content, isMentioned, isConvoChannel, isDM);
 
-    // Random delay for conversation messages (not mentions)
-    if (isConvoChannel) {
+    // Random delay for conversation messages (not mentions or DMs)
+    if (isConvoChannel && !isDM) {
       const delay = Math.floor(Math.random() * 500) + 3; // Tripled delay (was 100 + 1)
       await new Promise(r => setTimeout(r, delay * 1000));
       log('Applied random delay of %d seconds', delay);
     }
 
     // Get system prompt and conversation history
-    const systemPrompt = `You are ${config.model}. You are in a conversation on discord so respond as if in a group chat. Short messages. Use discord markdown liberally. Make your messages visually interesting and not too long. Same length as people would write in discord.`;
+    const systemPrompt = isDM 
+      ? `You are ${config.model}. You are in a private direct message conversation on Discord. Be helpful, friendly, and conversational.`
+      : `You are ${config.model}. You are in a conversation on discord so respond as if in a group chat. Short messages. Use discord markdown liberally. Make your messages visually interesting and not too long. Same length as people would write in discord.`;
 
     let apiMessages: ApiMessage[];
 
     // Get conversation history or just current message
-    if (isConvoChannel && msg.channel instanceof TextChannel) {
+    if ((isConvoChannel && msg.channel instanceof TextChannel) || isDM) {
       const history = await msg.channel.messages.fetch({ limit: HISTORY_LIMIT });
       apiMessages = formatHistory(Array.from(history.values()).reverse(), client.user.id, config);
       log('Fetched conversation history for channel %s', msg.channelId);
