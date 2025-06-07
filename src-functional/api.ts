@@ -5,7 +5,7 @@ import { GenerateTextWithHistory, ApiMessage } from './types';
 const log = debug('app:api');
 
 // Timeout duration in milliseconds
-const API_TIMEOUT_MS = 20000; // 20 seconds
+const API_TIMEOUT_MS = 50000; // 50 seconds
 
 /**
  * Create a text generation function for the Pollinations API

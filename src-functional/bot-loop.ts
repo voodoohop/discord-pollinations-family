@@ -3,7 +3,7 @@ import debug from 'debug';
 import { ApiMessage, Bot, BotConfig, GenerateTextWithHistory } from './types';
 
 const log = debug('app:bot');
-const HISTORY_LIMIT = 10;
+const HISTORY_LIMIT = 5;
 
 // Map of Discord user IDs to model names
 const botModelMap = new Map<string, string>();
@@ -137,14 +137,14 @@ async function processMessage(
     log('Processing message: %s (Mentioned: %s, Conversation Channel: %s)', msg.content, isMentioned, isConvoChannel);
 
     // Random delay for conversation messages (not mentions)
-    if (isConvoChannel && !isMentioned) {
-      const delay = Math.floor(Math.random() * 300) + 3; // Tripled delay (was 100 + 1)
+    if (isConvoChannel) {
+      const delay = Math.floor(Math.random() * 500) + 3; // Tripled delay (was 100 + 1)
       await new Promise(r => setTimeout(r, delay * 1000));
       log('Applied random delay of %d seconds', delay);
     }
 
     // Get system prompt and conversation history
-    const systemPrompt = `You are ${config.model}.`;
+    const systemPrompt = `You are ${config.model}. You are in a conversation on discord so respond as if in a group chat. Short messages. Use discord markdown liberally. Make your messages visually interesting and not too long. Same length as people would write in discord.`;
 
     let apiMessages: ApiMessage[];
 
@@ -175,6 +175,15 @@ async function processMessage(
       systemPrompt
     );
 
+    // Remove <think>...</think> tags from the AI response
+    if (typeof response === 'string') {
+      const responseBeforeStripping = response;
+      response = response.replace(/<think>.*?<\/think>/gs, '');
+      if (response.length < responseBeforeStripping.length) {
+        log('Stripped <think> tags from response.');
+      }
+    }
+
     if (response && response.trim()) {
       // First, try to strip out the exact model name prefix
       const exactModelNamePattern = new RegExp(`^\\s*\\[\\s*${config.model}\\s*\\]\\s*:\\s*\\n`, 'i');
@@ -191,7 +200,7 @@ async function processMessage(
       }
 
       log('Sending response: %s', response);
-      msg.reply(response.slice(0, 800));
+      msg.reply(response.slice(0, 1500));
     } else {
       // If response is empty or null, don't send anything
       log('No response generated or empty response received');
