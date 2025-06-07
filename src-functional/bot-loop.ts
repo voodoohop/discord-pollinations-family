@@ -64,21 +64,21 @@ async function handleClientReady(readyClient: Client, config: BotConfig) {
   const guildNames = Array.from(readyClient.guilds.cache.values()).map(guild => guild.name);
 
   log('Bot %s ready as %s', config.name, readyClient.user.tag);
-  console.log(`${config.name} is online in ${guildCount} servers: ${guildNames.join(', ')}`);
+  console.log(`Bot ${config.name} is online in ${guildCount} servers: ${guildNames.join(', ')}`);
 
-  // Add bot to the model map
+  // Store bot ID to model mapping
   botModelMap.set(readyClient.user.id, config.model);
   log('Added bot %s to model map with model %s', readyClient.user.tag, config.model);
 
   // Set avatar using Pollinations image API
   try {
     // Generate avatar URL using Pollinations API
-    const prompt = `Large Vibrant Pixel Art Icon for AI chatbot: "${config.model}"`;
-    const encodedPrompt = encodeURIComponent(prompt);
-    const avatarUrl = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=512&height=512`;
+    const prompt = `portrait of ${config.model}, digital art, minimal style, icon, avatar`;
+    const avatarUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=512&height=512&model=flux&nologo=true`;
+
     log('Generated avatar URL for %s: %s', config.name, avatarUrl);
 
-    log('Setting avatar for %s', config.name);
+    // Fetch and set avatar
     const response = await fetch(avatarUrl);
     if (!response.ok) {
       throw new Error(`Failed to fetch avatar image: ${response.status} ${response.statusText}`);
@@ -90,6 +90,19 @@ async function handleClientReady(readyClient: Client, config: BotConfig) {
   } catch (error) {
     log('Error setting avatar for %s: %O', config.name, error);
     console.error(`Failed to set avatar for ${config.name}:`, error);
+  }
+
+  // Set username to model name (rate limited: 2 changes per hour)
+  try {
+    if (readyClient.user.username !== config.model) {
+      await readyClient.user.setUsername(config.model);
+      log('Successfully set username to %s', config.model);
+    } else {
+      log('Username already set to %s, skipping', config.model);
+    }
+  } catch (error) {
+    log('Error setting username for %s: %O', config.name, error);
+    console.error(`Failed to set username for ${config.name}:`, error);
   }
 
   // Set nickname to model name
