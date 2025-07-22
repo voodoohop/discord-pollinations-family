@@ -1,6 +1,7 @@
 import axios from 'axios';
 import debug from 'debug';
 import { GenerateTextWithHistory, ApiMessage } from './types';
+import { NetworkTimeoutError } from './errors';
 
 const log = debug('app:api');
 
@@ -56,7 +57,7 @@ export const createGenerateTextWithHistory = (baseUrl: string): GenerateTextWith
       ...messages
     ];
 
-    const requestData = { model, messages: apiMessages };
+    const requestData = { model, messages: apiMessages};
 
     // Log equivalent curl command for debugging
     const curlCommand = `curl -X POST ${url} \\
@@ -77,7 +78,8 @@ export const createGenerateTextWithHistory = (baseUrl: string): GenerateTextWith
       const requestPromise = axios.post(url, requestData, {
         headers: {
           'Referer': 'roblox',
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${process.env.TEXT_POLLINATIONS_TOKEN}`
         }
       });
 
@@ -90,96 +92,20 @@ export const createGenerateTextWithHistory = (baseUrl: string): GenerateTextWith
 
       return response.data.choices[0].message.content;
     } catch (error: any) {
-      // Check if this is a timeout error
-      if (error.message && error.message.includes('Request timed out')) {
-        log('Request timed out after %dms', API_TIMEOUT_MS);
-        // Wait 60 seconds before allowing the next request
-        log('Waiting 60 seconds before allowing next request...');
-        await new Promise(resolve => setTimeout(resolve, 60000));
-        log('Wait complete, next request can now be processed');
-
-        // Release the semaphore after waiting
-        releaseSemaphore();
-        log('Released semaphore for model %s after timeout and wait', model);
-
-        return ""; // Return empty string instead of error message
-      }
-
-      // For other errors, release the semaphore immediately
       releaseSemaphore();
       log('Released semaphore for model %s after error', model);
-      // Log error with more context
-      log('=== API ERROR DETAILS ===');
-      log('Error Type: %s', error.name || 'Unknown Error Type');
-      log('Error Message: %s', error.message || 'No error message available');
-      log('Error Code: %s', error.code || 'No error code available');
-      log('Full URL: %s', url);
-      log('Model: %s', model);
-
-      // Log the complete error response if available
-      if (error.response) {
-        log('Response Status: %s', error.response.status);
-        log('Response Status Text: %s', error.response.statusText || 'No status text');
-        log('Response Headers: %O', error.response.headers);
-
-        // Try to parse and log the response data in a more readable format
-        try {
-          const errorData = error.response.data;
-          log('Response Data: %O', errorData);
-
-          // Check if there's an error message in the response data
-          if (errorData && typeof errorData === 'object') {
-            if (errorData.error) log('API Error Message: %s', errorData.error);
-            if (errorData.message) log('API Message: %s', errorData.message);
-          }
-        } catch (parseError: unknown) {
-          // Handle the unknown type correctly
-          if (parseError instanceof Error) {
-            log('Error parsing response data: %s', parseError.message);
-          } else {
-            log('Error parsing response data: Unknown error');
-          }
-        }
-      } else if (error.request) {
-        log('No response received from server');
-        log('Request Details: %O', {
-          method: 'POST',
-          url,
-          headers: {
-            'Referer': 'roblox',
-            'Content-Type': 'application/json'
-          }
-        });
-      } else {
-        log('Error setting up request: %s', error.message);
+      
+      // Handle timeout errors
+      if (error.message?.includes('Request timed out')) {
+        log('Request timed out after %dms, waiting 60s before next request', API_TIMEOUT_MS);
+        await new Promise(resolve => setTimeout(resolve, 60000));
+        throw new NetworkTimeoutError(API_TIMEOUT_MS);
       }
-
-      // Log request data with sensitive information redacted
-      const redactedMessages = apiMessages.map(msg => ({
-        ...msg,
-        content: msg.content.length > 100 ? `${msg.content.substring(0, 100)}...` : msg.content
-      }));
-
-      log('Request Payload: %O', {
-        model,
-        messages: redactedMessages,
-        url
-      });
-
-      // Log stack trace if available
-      if (error.stack) {
-        log('Stack Trace: %s', error.stack);
-      }
-
-      log('=== END API ERROR DETAILS ===');
-
-      // Wait 60 seconds before allowing the next request
-      log('Waiting 60 seconds before allowing next request...');
-      await new Promise(resolve => setTimeout(resolve, 60000));
-      log('Wait complete, next request can now be processed');
-
-      // Note: We've already released the semaphore earlier, so no need to release it again here
-      return ""; // Return empty string instead of error message
+      
+      // Handle all other API errors - return empty string instead of throwing
+      log('API request failed for model %s: %s', model, error.message);
+      await new Promise(resolve => setTimeout(resolve, 60000)); // Wait before next request
+      return ''; // Return empty string for non-timeout errors
     }
   };
 };

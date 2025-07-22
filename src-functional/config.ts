@@ -22,18 +22,26 @@ export const loadBotConfigs = (): BotConfig[] => {
   log('Loading bot configurations from environment variables...');
 
   const configs: BotConfig[] = [];
+  const seenTokens = new Set<string>();
 
   // Get the global conversation channels (applies to all bots)
   const globalConversationChannels = process.env.CONVERSATION_CHANNELS?.split(',') || [];
 
   // Find all bot tokens (format: BOT_TOKEN_1, BOT_TOKEN_2, etc.)
-  for (let i = 1; i <= 10; i++) { // Support up to 10 bots
+  for (let i = 1; i <= 6; i++) { // Support up to 3 bots (reduced for troubleshooting)
     const tokenVar = `BOT_TOKEN_${i}`;
     const token = process.env[tokenVar];
 
     if (!token) {
       continue; // Skip if no token defined for this index
     }
+
+    if (seenTokens.has(token)) {
+      log(`Warning: Duplicate token found for Bot ${i}. Please ensure each bot has a unique token.`);
+    }
+    seenTokens.add(token);
+
+    log(`Loaded token for Bot ${i}: ${token.substring(0, 5)}...`);
 
     // Get bot-specific configuration
     const name = process.env[`BOT_NAME_${i}`] || `Bot ${i}`;

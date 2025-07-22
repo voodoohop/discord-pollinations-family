@@ -110,7 +110,7 @@
     // "skipDefaultLibCheck": true,                      /* Skip type checking .d.ts files that are included with TypeScript. */
     "skipLibCheck": true                                 /* Skip type checking all .d.ts files. */
   },
-  "include": ["src/**/*"],
+  "include": ["src-functional/**/*"],
   "exclude": ["node_modules", "dist"],
-  "rootDir": "./src"
+  "rootDir": "./src-functional"
 }
