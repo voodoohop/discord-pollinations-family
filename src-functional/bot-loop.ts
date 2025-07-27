@@ -240,14 +240,22 @@ async function processMessage(
     }
 
     log('Processing message: %s (Mentioned: %s, Conversation Channel: %s, DM: %s)', msg.content, isMentioned, isConvoChannel, isDM);
+    log('Channel ID: %s, Config conversation channels: %s', msg.channelId, config.conversationChannelIds);
 
     // Random delay for conversation messages (not mentions or DMs)
     if (isConvoChannel && !isDM) {
       // temporarily return
       // return;
-      const delay = Math.floor(Math.random() * 1000) + 100; // Tripled delay (was 100 + 1)
+      const randomValue = Math.random();
+      const randomMultiplied = randomValue * 500;
+      const randomFloored = Math.floor(randomMultiplied);
+      const delay = randomFloored + 3; // Tripled delay (was 100 + 1)
+      log('Bot %s random calculation: Math.random()=%f, *500=%f, floored=%d, final delay=%d seconds', config.name, randomValue, randomMultiplied, randomFloored, delay);
+      log('Bot %s applying delay of %d seconds before responding...', config.name, delay);
       await new Promise(r => setTimeout(r, delay * 1000));
-      log('Applied random delay of %d seconds', delay);
+      log('Bot %s finished delay, proceeding with response', config.name);
+    } else {
+      log('Bot %s skipping delay - isConvoChannel: %s, isDM: %s', config.name, isConvoChannel, isDM);
     }
 
     // Get system prompt and conversation history

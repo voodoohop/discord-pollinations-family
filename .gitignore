@@ -26,4 +26,21 @@ node_modules/
 
 # Task files
 tasks.json
-tasks/ 
+tasks/
+
+# Python specific
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+venv/
+.venv/
+*.egg-info/
+
+# Log files
+*.log
+bot.log
+
+# Config files that might contain secrets
+*.config.yaml
+fastagent.config.yaml 
