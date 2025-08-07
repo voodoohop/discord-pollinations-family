@@ -28,7 +28,7 @@ export const loadBotConfigs = (): BotConfig[] => {
   const globalConversationChannels = process.env.CONVERSATION_CHANNELS?.split(',') || [];
 
   // Find all bot tokens (format: BOT_TOKEN_1, BOT_TOKEN_2, etc.)
-  for (let i = 1; i <= 6; i++) { // Support up to 3 bots (reduced for troubleshooting)
+  for (let i = 1; i <= 3; i++) { // Support up to 3 bots
     const tokenVar = `BOT_TOKEN_${i}`;
     const token = process.env[tokenVar];
 
@@ -44,9 +44,9 @@ export const loadBotConfigs = (): BotConfig[] => {
     log(`Loaded token for Bot ${i}: ${token.substring(0, 5)}...`);
 
     // Get bot-specific configuration
-    const name = process.env[`BOT_NAME_${i}`] || `Bot ${i}`;
     const personality = process.env[`BOT_PERSONALITY_${i}`] || 'A helpful AI assistant';
     const model = process.env[`BOT_MODEL_${i}`] || 'deepseek';
+    const name = process.env[`BOT_NAME_${i}`] || model;
 
     // Validate required fields
     if (!name.trim()) {

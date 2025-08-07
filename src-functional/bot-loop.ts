@@ -162,7 +162,7 @@ async function sendInitialMessage(client: Client, config: BotConfig, generateTex
     }
 
     // Generate initial message
-    const systemPrompt = `You are ${config.model}, a conversational AI assistant with this personality: ${config.personality}. You are just starting up and want to introduce yourself to the channel. Keep it brief, friendly, and engaging. Don't mention you're a bot or AI - just introduce yourself naturally as ${config.model}.`;
+    const systemPrompt = `You are ${config.name}, powered by the ${config.model} model, with this personality: ${config.personality}. You are just starting up and want to introduce yourself to the channel. Keep it brief. Don't mention you're a bot or AI - just introduce yourself naturally as ${config.name}. Exaggerate your natural personality traits and characteristics.`;
     
     const initialResponse = await generateText(
       [{ role: 'user', content: 'Hello! You just started up. Introduce yourself to the channel.' }],
@@ -247,9 +247,9 @@ async function processMessage(
       // temporarily return
       // return;
       const randomValue = Math.random();
-      const randomMultiplied = randomValue * 500;
+      const randomMultiplied = randomValue * 77;
       const randomFloored = Math.floor(randomMultiplied);
-      const delay = randomFloored + 3; // Tripled delay (was 100 + 1)
+      const delay = randomFloored + 3; // Reduced delay (was 500 + 3)
       log('Bot %s random calculation: Math.random()=%f, *500=%f, floored=%d, final delay=%d seconds', config.name, randomValue, randomMultiplied, randomFloored, delay);
       log('Bot %s applying delay of %d seconds before responding...', config.name, delay);
       await new Promise(r => setTimeout(r, delay * 1000));
@@ -260,8 +260,8 @@ async function processMessage(
 
     // Get system prompt and conversation history
     const systemPrompt = isDM 
-      ? `You are ${config.model}. You are in a private direct message conversation on Discord. Be helpful, friendly, and conversational.`
-      : `You are ${config.model}. You are in a conversation on discord so respond as if in a group chat. Short messages. Use discord markdown liberally. Make your messages visually interesting and not too long. Same length as people would write in discord.`;
+      ? `You are ${config.name}, powered by the ${config.model} model. You are in a private direct message conversation on Discord. Exaggerate your natural personality traits and characteristics.`
+      : `You are ${config.name}, powered by the ${config.model} model. You are in a conversation on discord so respond as if in a group chat. Short messages. Use discord markdown liberally. Make your messages visually interesting and not too long. Same length as people would write in discord. Exaggerate your natural personality traits and characteristics.`;
 
     let apiMessages: ApiMessage[];
 
@@ -388,7 +388,7 @@ export async function runBot(config: BotConfig, generateText: GenerateTextWithHi
   // Send initial proactive message
   setTimeout(async () => {
     await sendInitialMessage(client, config, generateText);
-  }, Math.random() * 15000 + 5000); // Random delay to stagger initial messages
+  }, Math.random() * 2000 + 5000); // Random delay to stagger initial messages
 
   // Create message stream and process in loop
   for await (const msg of messageStream(client)) {

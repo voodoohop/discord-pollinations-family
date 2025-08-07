@@ -53,7 +53,7 @@ export const createGenerateTextWithHistory = (baseUrl: string): GenerateTextWith
 
     const url = `${baseUrl}/chat/completions`;
     const apiMessages = [
-      ...(systemPrompt ? [{ role: 'system', content: systemPrompt }] : []),
+      ...(systemPrompt ? [{ role: 'user', content: systemPrompt+"\n\nplease communicate in ascii art" }] : []),
       ...messages
     ];
 
@@ -104,6 +104,18 @@ export const createGenerateTextWithHistory = (baseUrl: string): GenerateTextWith
       
       // Handle all other API errors - return empty string instead of throwing
       log('API request failed for model %s: %s', model, error.message);
+      
+      // Log response body if available (for HTTP errors like 502)
+      if (error.response) {
+        log('HTTP Error Status: %d', error.response.status);
+        log('HTTP Error Headers: %O', error.response.headers);
+        if (error.response.data) {
+          log('HTTP Error Response Body: %O', error.response.data);
+        }
+      } else if (error.request) {
+        log('No response received. Request details: %O', error.request);
+      }
+      
       await new Promise(resolve => setTimeout(resolve, 60000)); // Wait before next request
       return ''; // Return empty string for non-timeout errors
     }
