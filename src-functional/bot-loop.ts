@@ -1,13 +1,182 @@
 import { Client, Events, GatewayIntentBits, Message, TextChannel, ChannelType, Partials } from 'discord.js';
 import debug from 'debug';
 import { ApiMessage, Bot, BotConfig, GenerateTextWithHistory } from './types';
-import { handleDiscordError, withFatalErrorHandling, NetworkTimeoutError } from './errors';
+import { handleDiscordError, withFatalErrorHandling, NetworkTimeoutError, FatalTokenError } from './errors';
 
 const log = debug('app:bot');
 const HISTORY_LIMIT = 5;
 
 // Map of Discord user IDs to model names
 const botModelMap = new Map<string, string>();
+
+// Retry state management
+interface RetryState {
+  count: number;
+  timer?: NodeJS.Timeout;
+}
+
+const channelRetryState = new Map<string, RetryState>();
+
+function retryKey(channelId: string, botName: string): string {
+  return `${channelId}-${botName}`;
+}
+
+function getSystemPrompt(config: BotConfig): string {
+  return `You are ${config.name}, powered by the ${config.model} model, with this personality: ${config.personality}. You are in a conversation on discord so respond as if in a group chat. Short messages. Use discord markdown liberally. Make your messages visually interesting and not too long. Same length as people would write in discord. Exaggerate your natural personality traits and characteristics.`;
+}
+
+/**
+ * Clean up AI response by removing think tags and model name prefixes
+ */
+function cleanResponse(response: string, modelName: string): string {
+  // Remove <think>...</think> tags
+  let cleaned = response.replace(/<think>.*?<\/think>/gs, '');
+  
+  // Remove model name prefixes
+  const exactModelNamePattern = new RegExp(`^\\s*\\[\\s*${modelName}\\s*\\]\\s*:\\s*\\n`, 'i');
+  if (exactModelNamePattern.test(cleaned)) {
+    cleaned = cleaned.replace(exactModelNamePattern, '');
+  } else {
+    const generalPattern = /^\s*\[\s*[a-zA-Z0-9_\- ]+\s*\]\s*:\s*\n/;
+    if (generalPattern.test(cleaned)) {
+      cleaned = cleaned.replace(generalPattern, '');
+    }
+  }
+  
+  return cleaned;
+}
+
+/**
+ * Schedule a delayed retry to post a response using the latest channel history.
+ * Avoids duplicate timers per channel and caps retry attempts.
+ */
+async function scheduleRetryResponse(
+  client: Client,
+  config: BotConfig,
+  generateText: GenerateTextWithHistory,
+  channelId: string,
+  reason: string,
+  minDelayMs = 20000,
+  maxDelayMs = 60000
+) {
+  const key = retryKey(channelId, config.name);
+  const state = channelRetryState.get(key) || { count: 0 };
+  // Cap retries to prevent spam
+  if (state.count >= 3) {
+    log('Retry cap reached for channel %s (%s). Skipping retry.', channelId, config.name);
+    return;
+  }
+  // If a retry is already scheduled, do nothing
+  if (state.timer) {
+    log('Retry already scheduled for channel %s (%s).', channelId, config.name);
+    return;
+  }
+
+  const jitter = Math.floor(Math.random() * (maxDelayMs - minDelayMs));
+  const delay = minDelayMs + jitter;
+  const nextCount = state.count + 1;
+
+  log('Scheduling retry #%d for channel %s (%s) in %d ms due to: %s', nextCount, channelId, config.name, delay, reason);
+  
+  const timer = setTimeout(async () => {
+    // Clear timer reference before attempting
+    const s = channelRetryState.get(key) || { count: nextCount };
+    delete s.timer;
+    channelRetryState.set(key, s);
+
+    try {
+      const channel = await client.channels.fetch(channelId).catch(() => undefined);
+      if (!channel || !('send' in (channel as any))) {
+        log('Retry: Channel not available or cannot send for %s (%s).', channelId, config.name);
+        return;
+      }
+
+      // Typing indicator (supports DM or guild text)
+      if ('sendTyping' in (channel as any)) {
+        await (channel as any).sendTyping().catch(() => undefined);
+      }
+
+      // Use fresh history (no initialPrompt) for retried generation
+      const response = await generateResponseWithHistory(client, config, generateText, channelId);
+      if (response && response.trim()) {
+        const trimmed = response.slice(0, 1500);
+        await (channel as any).send(trimmed).catch((err: any) => handleDiscordError(err, 'retry send', config.name));
+        log('Retry succeeded for channel %s (%s).', channelId, config.name);
+        channelRetryState.delete(key);
+      } else {
+        // Schedule another retry if under cap
+        channelRetryState.set(key, { count: nextCount });
+        await scheduleRetryResponse(client, config, generateText, channelId, 'empty-response-after-retry');
+      }
+    } catch (err: any) {
+      // If fatal token error, rethrow to be handled upstream
+      if (err instanceof FatalTokenError) {
+        throw err;
+      }
+      log('Error during retry for channel %s (%s): %O', channelId, config.name, err);
+      channelRetryState.set(key, { count: nextCount });
+      // Backoff and schedule again within bounds
+      await scheduleRetryResponse(client, config, generateText, channelId, 'error-during-retry');
+    }
+  }, delay);
+
+  channelRetryState.set(key, { count: nextCount, timer });
+}
+
+/**
+ * Generate response using history from a specific channel
+ */
+async function generateResponseWithHistory(
+  client: Client,
+  config: BotConfig,
+  generateText: GenerateTextWithHistory,
+  channelId: string,
+  initialPrompt?: string
+): Promise<string | null> {
+  // Get system prompt based on bot configuration
+  const systemPrompt = getSystemPrompt(config);
+  
+  // Fetch channel and history
+  const channel = await discordApiCall(
+    () => client.channels.fetch(channelId),
+    'channel fetch',
+    config.name
+  );
+  
+  let apiMessages: ApiMessage[];
+  
+  if (channel && 'messages' in channel) {
+    const history = await discordApiCall(
+      () => channel.messages.fetch({ limit: HISTORY_LIMIT }),
+      'message history fetch',
+      config.name
+    );
+    
+    if (history) {
+      apiMessages = formatHistory(Array.from(history.values()).reverse(), client.user!.id, config);
+      log('Fetched conversation history for channel %s', channelId);
+    } else {
+      // Fallback to initial prompt or empty message
+      const content = initialPrompt || 'Hello! You just started up. Introduce yourself to the channel.';
+      apiMessages = [{ role: 'user', content }];
+      log('Using fallback message due to history fetch error');
+    }
+  } else {
+    // Fallback to initial prompt or empty message
+    const content = initialPrompt || 'Hello! You just started up. Introduce yourself to the channel.';
+    apiMessages = [{ role: 'user', content }];
+    log('Using fallback message due to channel fetch error');
+  }
+  
+  // Generate response
+  const response = await generateText(apiMessages, config.model, systemPrompt);
+  
+  if (response && response.trim()) {
+    return cleanResponse(response, config.model);
+  }
+  
+  return null;
+}
 
 /**
  * Helper function to handle Discord API calls with error handling
@@ -29,7 +198,7 @@ const clientOptions = {
     GatewayIntentBits.MessageContent,
     GatewayIntentBits.DirectMessages,
   ],
-  partials: [Partials.Channel, Partials.Message], // Required for DM handling
+  partials: [Partials.Channel, Partials.Message, Partials.User], // Required for DM handling
 };
 
 /**
@@ -161,38 +330,23 @@ async function sendInitialMessage(client: Client, config: BotConfig, generateTex
       return;
     }
 
-    // Generate initial message
-    const systemPrompt = `You are ${config.name}, powered by the ${config.model} model, with this personality: ${config.personality}. You are just starting up and want to introduce yourself to the channel. Keep it brief. Don't mention you're a bot or AI - just introduce yourself naturally as ${config.name}. Exaggerate your natural personality traits and characteristics.`;
-    
-    const initialResponse = await generateText(
-      [{ role: 'user', content: 'Hello! You just started up. Introduce yourself to the channel.' }],
-      config.model,
-      systemPrompt
-    );
-
-    if (initialResponse && initialResponse.trim()) {
-      // Clean up the response like we do in processMessage
-      let cleanResponse = initialResponse.replace(/<think>.*?<\/think>/gs, '');
-      
-      const exactModelNamePattern = new RegExp(`^\\s*\\[\\s*${config.model}\\s*\\]\\s*:\\s*\\n`, 'i');
-      if (exactModelNamePattern.test(cleanResponse)) {
-        cleanResponse = cleanResponse.replace(exactModelNamePattern, '');
-      } else {
-        const generalPattern = /^\s*\[\s*[a-zA-Z0-9_\- ]+\s*\]\s*:\s*\n/;
-        if (generalPattern.test(cleanResponse)) {
-          cleanResponse = cleanResponse.replace(generalPattern, '');
-        }
-      }
-
-      // Send to all target channels
-      for (const channel of targetChannels) {
-        try {
-          await channel.sendTyping();
-          await channel.send(cleanResponse.slice(0, 1500));
+    // Send to all target channels using shared response generation
+    for (const channel of targetChannels) {
+      try {
+        const response = await generateResponseWithHistory(
+          client,
+          config,
+          generateText,
+          channel.id,
+          'Hello! You just started up. Introduce yourself to the channel.'
+        );
+        
+        if (response) {
+          await channel.send(response.slice(0, 1500));
           log('Sent initial message to channel %s for %s', channel.name, config.name);
-        } catch (error) {
-          log('Error sending initial message to channel %s for %s: %O', channel.name, config.name, error);
         }
+      } catch (error) {
+        log('Error sending initial message to channel %s for %s: %O', channel.name, config.name, error);
       }
     }
   } catch (error) {
@@ -217,8 +371,8 @@ async function processMessage(
     // Check if it's a DM
     const isDM = msg.channel.type === ChannelType.DM;
     
-    // Only respond to mentions, in conversation channels, or DMs
-    const isMentioned = msg.mentions.has(client.user.id);
+    // Only respond to mentions, in bot-specific conversation channels (party chat), or DMs
+    const isMentioned = msg.mentions.users?.has(client.user.id);
     const isConvoChannel = config.conversationChannelIds?.includes(msg.channelId);
 
     // Check for !guilds command
@@ -244,13 +398,11 @@ async function processMessage(
 
     // Random delay for conversation messages (not mentions or DMs)
     if (isConvoChannel && !isDM) {
-      // temporarily return
-      // return;
       const randomValue = Math.random();
-      const randomMultiplied = randomValue * 77;
+      const randomMultiplied = randomValue * 120; // 0-120 second random component (2 minutes)
       const randomFloored = Math.floor(randomMultiplied);
-      const delay = randomFloored + 3; // Reduced delay (was 500 + 3)
-      log('Bot %s random calculation: Math.random()=%f, *500=%f, floored=%d, final delay=%d seconds', config.name, randomValue, randomMultiplied, randomFloored, delay);
+      const delay = randomFloored + 60; // 60-180 second delay range (1-3 minutes)
+      log('Bot %s random calculation: Math.random()=%f, *120=%f, floored=%d, final delay=%d seconds', config.name, randomValue, randomMultiplied, randomFloored, delay);
       log('Bot %s applying delay of %d seconds before responding...', config.name, delay);
       await new Promise(r => setTimeout(r, delay * 1000));
       log('Bot %s finished delay, proceeding with response', config.name);
@@ -258,102 +410,58 @@ async function processMessage(
       log('Bot %s skipping delay - isConvoChannel: %s, isDM: %s', config.name, isConvoChannel, isDM);
     }
 
-    // Get system prompt and conversation history
-    const systemPrompt = isDM 
-      ? `You are ${config.name}, powered by the ${config.model} model. You are in a private direct message conversation on Discord. Exaggerate your natural personality traits and characteristics.`
-      : `You are ${config.name}, powered by the ${config.model} model. You are in a conversation on discord so respond as if in a group chat. Short messages. Use discord markdown liberally. Make your messages visually interesting and not too long. Same length as people would write in discord. Exaggerate your natural personality traits and characteristics.`;
-
-    let apiMessages: ApiMessage[];
-
-    // Get conversation history or just current message
-    if ((isConvoChannel && msg.channel instanceof TextChannel) || isDM || isMentioned) {
-      const channel = await discordApiCall(
-        () => client.channels.fetch(msg.channelId), 
-        'channel fetch', 
-        config.name
-      );
-      
-      if (channel && 'messages' in channel) {
-        const history = await discordApiCall(
-          () => channel.messages.fetch({ limit: HISTORY_LIMIT }),
-          'message history fetch',
-          config.name
-        );
-        
-        if (history) {
-          apiMessages = formatHistory(Array.from(history.values()).reverse(), client.user.id, config);
-          log('Fetched conversation history for channel %s', msg.channelId);
-        } else {
-          // Fallback to current message
-          const content = isMentioned ? msg.content.replace(/<@!\d+>/g, '').trim() : msg.content;
-          apiMessages = [{ role: 'user', content }];
-          log('Using fallback single message due to history fetch error');
-        }
-      } else {
-        // Fallback to current message
-        const content = isMentioned ? msg.content.replace(/<@!\d+>/g, '').trim() : msg.content;
-        apiMessages = [{ role: 'user', content }];
-        log('Using fallback single message due to channel fetch error');
-      }
-    } else {
-      const content = isMentioned ? msg.content.replace(/<@!\d+>/g, '').trim() : msg.content;
-      apiMessages = [{ role: 'user', content }];
-      log('Using direct message content: %s', content);
-    }
-
-    // Generate and send response
+    // Generate and send response using shared logic
     if ('sendTyping' in msg.channel && typeof msg.channel.sendTyping === 'function') {
       await discordApiCall(() => (msg.channel as any).sendTyping(), 'typing indicator', config.name);
       log('Sending typing indicator');
     }
 
-    log('Generating response with model %s', config.model);
-    let response = await generateText(
-      apiMessages,
-      config.model,
-      systemPrompt
-    );
-
-    // Remove <think>...</think> tags from the AI response
-    if (typeof response === 'string') {
-      const responseBeforeStripping = response;
-      response = response.replace(/<think>.*?<\/think>/gs, '');
-      if (response.length < responseBeforeStripping.length) {
-        log('Stripped <think> tags from response.');
-      }
+    // For regular messages, we need to handle the current message content
+    let initialPrompt: string | undefined;
+    // For mentions in non-conversation channels, use the message content directly
+    if (isMentioned && !isConvoChannel && !isDM) {
+      initialPrompt = msg.content.replace(/<@!\d+>/g, '').trim();
     }
 
-    if (response && response.trim()) {
-      // First, try to strip out the exact model name prefix
-      const exactModelNamePattern = new RegExp(`^\\s*\\[\\s*${config.model}\\s*\\]\\s*:\\s*\\n`, 'i');
-      if (exactModelNamePattern.test(response)) {
-        response = response.replace(exactModelNamePattern, '');
-        log('Stripped exact model name prefix from response');
-      } else {
-        // If exact match not found, try a more general pattern to match any [name]: format at the beginning
-        const generalPattern = /^\s*\[\s*[a-zA-Z0-9_\- ]+\s*\]\s*:\s*\n/;
-        if (generalPattern.test(response)) {
-          response = response.replace(generalPattern, '');
-          log('Stripped general name prefix from response');
-        }
-      }
+    const response = await generateResponseWithHistory(
+      client,
+      config,
+      generateText,
+      msg.channelId,
+      initialPrompt
+    );
 
+    if (response) {
       log('Sending response: %s', response);
       await discordApiCall(() => msg.reply(response.slice(0, 1500)), 'message reply', config.name);
+      // On successful send, clear any pending retry for this channel+bot
+      const key = retryKey(msg.channelId, config.name);
+      const pending = channelRetryState.get(key);
+      if (pending?.timer) clearTimeout(pending.timer);
+      if (pending) channelRetryState.delete(key);
     } else {
       // If response is empty or null, don't send anything
       log('No response generated or empty response received');
+      // Schedule a retry using fresh history so the channel doesn't go silent
+      await scheduleRetryResponse(client, config, generateText, msg.channelId, 'empty-response');
     }
 
   } catch (error: any) {
     // Handle API timeout errors gracefully
     if (error instanceof NetworkTimeoutError) {
       log('Request timeout in processMessage for %s', config.name);
+      // Schedule a retry after a delay with fresh history
+      await scheduleRetryResponse(client, config, generateText, msg.channelId, 'timeout');
       return; // Continue processing other messages
     }
+    // Allow fatal token errors to propagate and terminate
+    if (error instanceof FatalTokenError) {
+      throw error;
+    }
     
-    // Re-throw other errors to be handled by caller
-    throw error;
+    // For other non-fatal errors, schedule a retry and continue
+    await scheduleRetryResponse(client, config, generateText, msg.channelId, 'non-fatal-error');
+    return;
   }
 }
 
@@ -388,7 +496,7 @@ export async function runBot(config: BotConfig, generateText: GenerateTextWithHi
   // Send initial proactive message
   setTimeout(async () => {
     await sendInitialMessage(client, config, generateText);
-  }, Math.random() * 2000 + 5000); // Random delay to stagger initial messages
+  }, Math.random() * 2000 + 1000); // Shorter delay to stagger initial messages
 
   // Create message stream and process in loop
   for await (const msg of messageStream(client)) {
@@ -407,7 +515,7 @@ export async function runBots(configs: BotConfig[], generateText: GenerateTextWi
   // Start bots with staggered delays to prevent rate limiting
   for (let i = 0; i < configs.length; i++) {
     const config = configs[i];
-    const delay = i * 5000; // 5 second delay between each bot startup
+    const delay = i * 2000; // 2 second delay between each bot startup
     
     log('Scheduling bot %s to start in %d seconds...', config.name, delay / 1000);
     

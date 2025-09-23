@@ -28,7 +28,7 @@ export const loadBotConfigs = (): BotConfig[] => {
   const globalConversationChannels = process.env.CONVERSATION_CHANNELS?.split(',') || [];
 
   // Find all bot tokens (format: BOT_TOKEN_1, BOT_TOKEN_2, etc.)
-  for (let i = 1; i <= 3; i++) { // Support up to 3 bots
+  for (let i = 1; i <= 5; i++) { // Support up to 5 bots
     const tokenVar = `BOT_TOKEN_${i}`;
     const token = process.env[tokenVar];
 
@@ -62,7 +62,7 @@ export const loadBotConfigs = (): BotConfig[] => {
     const botSpecificChannels = process.env[`BOT_CONVERSATION_CHANNELS_${i}`];
 
     if (botSpecificChannels) {
-      conversationChannelIds = botSpecificChannels.split(',');
+      conversationChannelIds = botSpecificChannels.split(',').map(id => id.trim()).filter(Boolean);
       log(`Using bot-specific conversation channels for Bot ${i}: ${conversationChannelIds}`);
     } else {
       log(`Using global conversation channels for Bot ${i}: ${conversationChannelIds}`);

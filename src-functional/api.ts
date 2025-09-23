@@ -53,7 +53,7 @@ export const createGenerateTextWithHistory = (baseUrl: string): GenerateTextWith
 
     const url = `${baseUrl}/chat/completions`;
     const apiMessages = [
-      ...(systemPrompt ? [{ role: 'user', content: systemPrompt+"\n\nplease communicate in ascii art" }] : []),
+      ...(systemPrompt ? [{ role: 'user', content: systemPrompt }] : []),
       ...messages
     ];
 
