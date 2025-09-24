@@ -287,12 +287,14 @@ async function handleClientReady(readyClient: Client, config: BotConfig) {
   */
 
   // Set username to model name (rate limited: 2 changes per hour)
+  // Remove dashes from model name for Discord username compatibility
+  const discordUsername = config.model.replace(/-/g, '');
   try {
-    if (readyClient.user.username !== config.model) {
-      await readyClient.user.setUsername(config.model);
-      log('Successfully set username to %s', config.model);
+    if (readyClient.user.username !== discordUsername) {
+      await readyClient.user.setUsername(discordUsername);
+      log('Successfully set username to %s (from model: %s)', discordUsername, config.model);
     } else {
-      log('Username already set to %s, skipping', config.model);
+      log('Username already set to %s, skipping', discordUsername);
     }
   } catch (error) {
     log('Error setting username for %s: %O', config.name, error);
