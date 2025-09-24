@@ -14,54 +14,12 @@ const API_TIMEOUT_MS = 50000; // 50 seconds
 export const createGenerateTextWithHistory = (baseUrl: string): GenerateTextWithHistory => {
   log('API Client created with baseUrl: %s', baseUrl);
 
-  // Per-model semaphore to control concurrency (allows different models to run concurrently)
-  const modelSemaphores = new Map<string, { inProgress: boolean; queue: Array<() => void> }>();
-
-  // Function to get or create semaphore for a model
-  const getModelSemaphore = (model: string) => {
-    if (!modelSemaphores.has(model)) {
-      modelSemaphores.set(model, { inProgress: false, queue: [] });
-    }
-    return modelSemaphores.get(model)!;
-  };
-
-  // Function to acquire the semaphore for a specific model
-  const acquireSemaphore = async (model: string): Promise<void> => {
-    const semaphore = getModelSemaphore(model);
-    
-    if (!semaphore.inProgress) {
-      semaphore.inProgress = true;
-      return;
-    }
-
-    // If a request is already in progress for this model, wait for it to complete
-    return new Promise<void>(resolve => {
-      semaphore.queue.push(resolve);
-    });
-  };
-
-  // Function to release the semaphore for a specific model
-  const releaseSemaphore = (model: string): void => {
-    const semaphore = getModelSemaphore(model);
-    const nextRequest = semaphore.queue.shift();
-    
-    if (nextRequest) {
-      // Process the next request in the queue for this model
-      nextRequest();
-    } else {
-      // No more requests in the queue for this model
-      semaphore.inProgress = false;
-    }
-  };
+  // No rate limiting needed - let the API handle concurrent requests
 
   /**
    * Generate text using conversation history
    */
   return async (messages: ApiMessage[], model: string, systemPrompt?: string): Promise<string> => {
-    // Wait for any ongoing request to complete for this specific model
-    await acquireSemaphore(model);
-    log('Acquired semaphore for model %s', model);
-
     const url = `${baseUrl}/chat/completions`;
     const apiMessages = [
       ...(systemPrompt ? [{ role: 'user', content: systemPrompt }] : []),
@@ -97,14 +55,8 @@ export const createGenerateTextWithHistory = (baseUrl: string): GenerateTextWith
       // Race the request against the timeout
       const response = await Promise.race([requestPromise, timeoutPromise]);
 
-      // Release the semaphore for the next request
-      releaseSemaphore(model);
-      log('Released semaphore for model %s', model);
-
       return response.data.choices[0].message.content;
     } catch (error: any) {
-      releaseSemaphore(model);
-      log('Released semaphore for model %s after error', model);
       
       // Handle timeout errors
       if (error.message?.includes('Request timed out')) {
