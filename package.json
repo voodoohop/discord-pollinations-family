@@ -4,7 +4,9 @@
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "start-disabled": "ts-node src-functional/index.ts",
+    "start": "./start-bots.sh",
+    "start-all": "ts-node src-functional/index.ts",
+    "start-bot": "ts-node src-functional/cli.ts",
     "dev": "ts-node-dev --respawn src-functional/index.ts",
     "build": "tsc",
     "serve": "node dist/index.js",

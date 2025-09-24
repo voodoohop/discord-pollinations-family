@@ -534,8 +534,14 @@ export async function runBot(config: BotConfig, generateText: GenerateTextWithHi
 
 /**
  * Run multiple bots with staggered startup delays
+ * @deprecated Use CLI interface instead: ts-node src-functional/cli.ts <model> <token>
  */
 export async function runBots(configs: BotConfig[], generateText: GenerateTextWithHistory): Promise<void> {
+  console.warn('⚠️  DEPRECATED: runBots() is deprecated. Use the CLI interface instead:');
+  console.warn('   ts-node src-functional/cli.ts <model> <token>');
+  console.warn('   Example: ts-node src-functional/cli.ts geminisearch YOUR_BOT_TOKEN');
+  console.warn('');
+  
   const botPromises: Promise<never>[] = [];
   
   // Start bots with staggered delays to prevent rate limiting
