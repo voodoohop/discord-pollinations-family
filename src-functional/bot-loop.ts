@@ -9,18 +9,6 @@ const HISTORY_LIMIT = 5;
 // Map of Discord user IDs to model names
 const botModelMap = new Map<string, string>();
 
-// Retry state management
-interface RetryState {
-  count: number;
-  timer?: NodeJS.Timeout;
-}
-
-const channelRetryState = new Map<string, RetryState>();
-
-function retryKey(channelId: string, botName: string): string {
-  return `${channelId}-${botName}`;
-}
-
 function getSystemPrompt(config: BotConfig): string {
   return `You are ${config.name}, powered by the ${config.model} model, with this personality: ${config.personality}. You are in a conversation on discord so respond as if in a group chat. Short messages. Use discord markdown liberally. Make your messages visually interesting and not too long. Same length as people would write in discord. Exaggerate your natural personality traits and characteristics.
 
@@ -55,82 +43,6 @@ function cleanResponse(response: string, modelName: string): string {
   return cleaned;
 }
 
-/**
- * Schedule a delayed retry to post a response using the latest channel history.
- * Avoids duplicate timers per channel and caps retry attempts.
- */
-async function scheduleRetryResponse(
-  client: Client,
-  config: BotConfig,
-  generateText: GenerateTextWithHistory,
-  channelId: string,
-  reason: string,
-  minDelayMs = 20000,
-  maxDelayMs = 60000
-) {
-  const key = retryKey(channelId, config.name);
-  const state = channelRetryState.get(key) || { count: 0 };
-  // Cap retries to prevent spam
-  if (state.count >= 3) {
-    log('Retry cap reached for channel %s (%s). Skipping retry.', channelId, config.name);
-    return;
-  }
-  // If a retry is already scheduled, do nothing
-  if (state.timer) {
-    log('Retry already scheduled for channel %s (%s).', channelId, config.name);
-    return;
-  }
-
-  const jitter = Math.floor(Math.random() * (maxDelayMs - minDelayMs));
-  const delay = minDelayMs + jitter;
-  const nextCount = state.count + 1;
-
-  log('Scheduling retry #%d for channel %s (%s) in %d ms due to: %s', nextCount, channelId, config.name, delay, reason);
-  
-  const timer = setTimeout(async () => {
-    // Clear timer reference before attempting
-    const s = channelRetryState.get(key) || { count: nextCount };
-    delete s.timer;
-    channelRetryState.set(key, s);
-
-    try {
-      const channel = await client.channels.fetch(channelId).catch(() => undefined);
-      if (!channel || !('send' in (channel as any))) {
-        log('Retry: Channel not available or cannot send for %s (%s).', channelId, config.name);
-        return;
-      }
-
-      // Typing indicator (supports DM or guild text)
-      if ('sendTyping' in (channel as any)) {
-        await (channel as any).sendTyping().catch(() => undefined);
-      }
-
-      // Use fresh history (no initialPrompt) for retried generation
-      const response = await generateResponseWithHistory(client, config, generateText, channelId);
-      if (response && response.trim()) {
-        const trimmed = response.slice(0, 1500);
-        await (channel as any).send(trimmed).catch((err: any) => handleDiscordError(err, 'retry send', config.name));
-        log('Retry succeeded for channel %s (%s).', channelId, config.name);
-        channelRetryState.delete(key);
-      } else {
-        // Schedule another retry if under cap
-        channelRetryState.set(key, { count: nextCount });
-        await scheduleRetryResponse(client, config, generateText, channelId, 'empty-response-after-retry');
-      }
-    } catch (err: any) {
-      // If fatal token error, rethrow to be handled upstream
-      if (err instanceof FatalTokenError) {
-        throw err;
-      }
-      log('Error during retry for channel %s (%s): %O', channelId, config.name, err);
-      channelRetryState.set(key, { count: nextCount });
-      // Backoff and schedule again within bounds
-      await scheduleRetryResponse(client, config, generateText, channelId, 'error-during-retry');
-    }
-  }, delay);
-
-  channelRetryState.set(key, { count: nextCount, timer });
-}
 
 /**
  * Generate response using history from a specific channel
@@ -460,34 +372,20 @@ async function processMessage(
     if (response) {
       log('Sending response: %s', response);
       await discordApiCall(() => msg.reply(response.slice(0, 1500)), 'message reply', config.name);
-      // On successful send, clear any pending retry for this channel+bot
-      const key = retryKey(msg.channelId, config.name);
-      const pending = channelRetryState.get(key);
-      if (pending?.timer) clearTimeout(pending.timer);
-      if (pending) channelRetryState.delete(key);
     } else {
       // If response is empty or null, don't send anything
       log('No response generated or empty response received');
-      // Schedule a retry using fresh history so the channel doesn't go silent
-      await scheduleRetryResponse(client, config, generateText, msg.channelId, 'empty-response');
     }
 
   } catch (error: any) {
-    // Handle API timeout errors gracefully
-    if (error instanceof NetworkTimeoutError) {
-      log('Request timeout in processMessage for %s', config.name);
-      // Schedule a retry after a delay with fresh history
-      await scheduleRetryResponse(client, config, generateText, msg.channelId, 'timeout');
-      return; // Continue processing other messages
-    }
     // Allow fatal token errors to propagate and terminate
     if (error instanceof FatalTokenError) {
       throw error;
     }
     
-    // For other non-fatal errors, schedule a retry and continue
-    await scheduleRetryResponse(client, config, generateText, msg.channelId, 'non-fatal-error');
-    return;
+    // Log other errors but continue processing
+    log('Error in processMessage for %s: %O', config.name, error);
+    handleDiscordError(error, 'processMessage', config.name);
   }
 }
 
