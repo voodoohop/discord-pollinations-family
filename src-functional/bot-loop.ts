@@ -22,7 +22,13 @@ function retryKey(channelId: string, botName: string): string {
 }
 
 function getSystemPrompt(config: BotConfig): string {
-  return `You are ${config.name}, powered by the ${config.model} model, with this personality: ${config.personality}. You are in a conversation on discord so respond as if in a group chat. Short messages. Use discord markdown liberally. Make your messages visually interesting and not too long. Same length as people would write in discord. Exaggerate your natural personality traits and characteristics.`;
+  return `You are ${config.name}, powered by the ${config.model} model, with this personality: ${config.personality}. You are in a conversation on discord so respond as if in a group chat. Short messages. Use discord markdown liberally. Make your messages visually interesting and not too long. Same length as people would write in discord. Exaggerate your natural personality traits and characteristics.
+
+Feel free to:
+DM me anytime,
+Chat in the ⁠#🐝│bot-garden-party channel,
+
+You can also tell people they can add me to their own Discord servers if they'd like!`;
 }
 
 /**
