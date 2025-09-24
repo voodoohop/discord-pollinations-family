@@ -261,7 +261,9 @@ async function handleClientReady(readyClient: Client, config: BotConfig) {
   botModelMap.set(readyClient.user.id, config.model);
   log('Added bot %s to model map with model %s', readyClient.user.tag, config.model);
 
-  // Set avatar using Pollinations image API
+  // Set avatar using Pollinations image API (commented out to avoid rate limit errors)
+  // TODO: Reactivate avatar setting later when needed
+  /*
   try {
     // Generate avatar URL using Pollinations API
     const prompt = `portrait of ${config.model}, digital art, minimal style, icon, avatar`;
@@ -282,6 +284,7 @@ async function handleClientReady(readyClient: Client, config: BotConfig) {
     log('Error setting avatar for %s: %O', config.name, error);
     console.error(`Failed to set avatar for ${config.name}:`, error);
   }
+  */
 
   // Set username to model name (rate limited: 2 changes per hour)
   try {
@@ -308,34 +311,28 @@ async function handleClientReady(readyClient: Client, config: BotConfig) {
  */
 async function sendInitialMessage(client: Client, config: BotConfig, generateText: GenerateTextWithHistory) {
   try {
-    log('Sending initial proactive message for %s', config.name);
+    log('Checking if initial proactive message should be sent for %s', config.name);
     
     // Get target channels for initial message
     const targetChannels: TextChannel[] = [];
     
-    if (config.conversationChannelIds && config.conversationChannelIds.length > 0) {
-      // Use specific conversation channels
-      for (const channelId of config.conversationChannelIds) {
-        const channel = client.channels.cache.get(channelId.trim());
-        if (channel && channel.type === ChannelType.GuildText) {
-          targetChannels.push(channel as TextChannel);
-        }
-      }
-    } else {
-      // If no specific channels, find first available text channel in each guild
-      for (const guild of client.guilds.cache.values()) {
-        const channel = guild.channels.cache.find(
-          ch => ch.type === ChannelType.GuildText && 
-               ch.permissionsFor(guild.members.me!)?.has('SendMessages')
-        ) as TextChannel;
-        if (channel) {
-          targetChannels.push(channel);
-        }
+    // Only send initial messages if conversation channels are explicitly configured
+    if (!config.conversationChannelIds || config.conversationChannelIds.length === 0) {
+      log('No conversation channels configured for %s - skipping initial proactive message', config.name);
+      return;
+    }
+
+    // Use specific conversation channels
+    log('Using configured conversation channels for initial message for %s', config.name);
+    for (const channelId of config.conversationChannelIds) {
+      const channel = client.channels.cache.get(channelId.trim());
+      if (channel && channel.type === ChannelType.GuildText) {
+        targetChannels.push(channel as TextChannel);
       }
     }
 
     if (targetChannels.length === 0) {
-      log('No available channels for initial message for %s', config.name);
+      log('No available channels found from configured IDs for %s', config.name);
       return;
     }
 

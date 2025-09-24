@@ -28,11 +28,20 @@ export const loadBotConfigs = (): BotConfig[] => {
   const globalConversationChannels = process.env.CONVERSATION_CHANNELS?.split(',') || [];
 
   // Find all bot tokens (format: BOT_TOKEN_1, BOT_TOKEN_2, etc.)
-  for (let i = 1; i <= 5; i++) { // Support up to 5 bots
+  // Dynamically detect bots by iterating until BOT_MODEL_[n] is not defined
+  for (let i = 1; ; i++) {
+    const modelVar = `BOT_MODEL_${i}`;
+    const botModel = process.env[modelVar];
+    
+    if (!botModel) {
+      break; // Stop when no more bot models are defined
+    }
+
     const tokenVar = `BOT_TOKEN_${i}`;
     const token = process.env[tokenVar];
 
     if (!token) {
+      log(`Warning: Bot ${i} has model '${botModel}' but no token defined. Skipping.`);
       continue; // Skip if no token defined for this index
     }
 
@@ -45,15 +54,14 @@ export const loadBotConfigs = (): BotConfig[] => {
 
     // Get bot-specific configuration
     const personality = process.env[`BOT_PERSONALITY_${i}`] || 'A helpful AI assistant';
-    const model = process.env[`BOT_MODEL_${i}`] || 'deepseek';
-    const name = process.env[`BOT_NAME_${i}`] || model;
+    const name = process.env[`BOT_NAME_${i}`] || botModel;
 
     // Validate required fields
     if (!name.trim()) {
       log(`Warning: Bot ${i} has an empty name, using default`);
     }
 
-    if (!model.trim()) {
+    if (!botModel.trim()) {
       log(`Warning: Bot ${i} has an empty model name, using default`);
     }
 
@@ -72,13 +80,13 @@ export const loadBotConfigs = (): BotConfig[] => {
     const config: BotConfig = {
       name,
       token,
-      model,
+      model: botModel,
       personality,
       conversationChannelIds
     };
 
     configs.push(config);
-    log(`Loaded config for Bot ${i}: Name='${name}', Model='${model}'`);
+    log(`Loaded config for Bot ${i}: Name='${name}', Model='${botModel}'`);
   }
 
   log(`Found ${configs.length} bot configurations.`);
