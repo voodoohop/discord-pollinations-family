@@ -6,9 +6,6 @@ import { handleDiscordError, withFatalErrorHandling, NetworkTimeoutError, FatalT
 const log = debug('app:bot');
 const HISTORY_LIMIT = 5;
 
-// Map of Discord user IDs to model names
-const botModelMap = new Map<string, string>();
-
 function getSystemPrompt(config: BotConfig): string {
   return `You are ${config.name}, powered by the ${config.model} model, with this personality: ${config.personality}. You are in a conversation on discord so respond as if in a group chat. Short messages. Use discord markdown liberally. Make your messages visually interesting and not too long. Same length as people would write in discord. Exaggerate your natural personality traits and characteristics.
 
@@ -142,8 +139,8 @@ function formatHistory(messages: Message[], botId: string, config: BotConfig): A
   return messages
     .filter(msg => msg.content?.trim() && !msg.system)
     .map(msg => {
-      const isBot = botModelMap.has(msg.author.id);
-      const name = isBot ? botModelMap.get(msg.author.id) : msg.author.username;
+      // Use the current bot's model name if it's this bot, otherwise use username
+      const name = msg.author.id === botId ? config.model : msg.author.username;
       const content = msg.content.length > 4000 ? msg.content.slice(0, 4000) + '...' : msg.content;
 
       return {
@@ -168,10 +165,6 @@ async function handleClientReady(readyClient: Client, config: BotConfig) {
 
   log('Bot %s ready as %s', config.name, readyClient.user.tag);
   console.log(`Bot ${config.name} is online in ${guildCount} servers: ${guildNames.join(', ')}`);
-
-  // Store bot ID to model mapping
-  botModelMap.set(readyClient.user.id, config.model);
-  log('Added bot %s to model map with model %s', readyClient.user.tag, config.model);
 
   // Set avatar using Pollinations image API (commented out to avoid rate limit errors)
   // TODO: Reactivate avatar setting later when needed
@@ -430,36 +423,3 @@ export async function runBot(config: BotConfig, generateText: GenerateTextWithHi
   throw new Error('Bot loop ended unexpectedly');
 }
 
-/**
- * Run multiple bots with staggered startup delays
- * @deprecated Use CLI interface instead: ts-node src-functional/cli.ts <model> <token>
- */
-export async function runBots(configs: BotConfig[], generateText: GenerateTextWithHistory): Promise<void> {
-  console.warn('⚠️  DEPRECATED: runBots() is deprecated. Use the CLI interface instead:');
-  console.warn('   ts-node src-functional/cli.ts <model> <token>');
-  console.warn('   Example: ts-node src-functional/cli.ts geminisearch YOUR_BOT_TOKEN');
-  console.warn('');
-  
-  const botPromises: Promise<never>[] = [];
-  
-  // Start bots with staggered delays to prevent rate limiting
-  for (let i = 0; i < configs.length; i++) {
-    const config = configs[i];
-    const delay = i * 2000; // 2 second delay between each bot startup
-    
-    log('Scheduling bot %s to start in %d seconds...', config.name, delay / 1000);
-    
-    const botPromise = (async () => {
-      if (delay > 0) {
-        await new Promise(resolve => setTimeout(resolve, delay));
-      }
-      log('Starting bot %s now...', config.name);
-      return runBot(config, generateText);
-    })();
-    
-    botPromises.push(botPromise);
-  }
-  
-  // Wait for all bots to complete (they never should, but just in case)
-  await Promise.all(botPromises);
-}

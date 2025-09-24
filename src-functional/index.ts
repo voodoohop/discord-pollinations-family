@@ -1,22 +1,23 @@
-import debug from 'debug';
-import { loadBotConfigs, pollinationsConfig } from './config';
-import { createGenerateTextWithHistory } from './api';
-import { runBots } from './bot-loop';
+/**
+ * @deprecated This file is deprecated. Use the CLI interface instead:
+ * 
+ * Single bot: ts-node src-functional/cli.ts <model> <token>
+ * Multiple bots: Use ./start-bots.sh or npm start
+ * 
+ * Examples:
+ *   ts-node src-functional/cli.ts geminisearch YOUR_BOT_TOKEN
+ *   ./start-bots.sh
+ */
 
-const log = debug('app:index');
+console.warn('⚠️  DEPRECATED: This entry point is deprecated.');
+console.warn('');
+console.warn('Use the CLI interface instead:');
+console.warn('  Single bot: ts-node src-functional/cli.ts <model> <token>');
+console.warn('  Multiple bots: ./start-bots.sh or npm start');
+console.warn('');
+console.warn('Examples:');
+console.warn('  ts-node src-functional/cli.ts geminisearch YOUR_BOT_TOKEN');
+console.warn('  ./start-bots.sh');
+console.warn('');
 
-// Main function - as minimal as possible
-async function main() {
-  const configs = loadBotConfigs();
-  if (configs.length === 0) return;
-  
-  const generateText = createGenerateTextWithHistory(pollinationsConfig.baseUrl);
-  
-  // Simple shutdown handler
-  process.on('SIGINT', () => process.exit(0));
-  
-  // Run bots (never returns)
-  await runBots(configs, generateText);
-}
-
-main().catch(e => console.error(e));
+process.exit(1);
