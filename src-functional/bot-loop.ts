@@ -28,7 +28,10 @@ Feel free to:
 DM me anytime,
 Chat in the ⁠#🐝│bot-garden-party channel,
 
-You can also tell people they can add me to their own Discord servers if they'd like!`;
+You can also tell people they can add me to their own Discord servers! Available commands:
+\`!invite\` - Get my invitation link
+\`!permissions\` - See what permissions I need
+\`!guilds\` - See which servers I'm in`;
 }
 
 /**
@@ -391,6 +394,24 @@ async function processMessage(
       const response = `I am in ${guildCount} servers:\n- ${guildList}`;
       await discordApiCall(() => msg.reply(response), '!guilds reply', config.name);
       log('Responded to !guilds command');
+      return;
+    }
+
+    // Check for !invite command
+    if (msg.content.trim().toLowerCase() === '!invite' && client.user) {
+      // Include both bot and applications.commands scopes for modern Discord bot requirements
+      const inviteUrl = `https://discord.com/api/oauth2/authorize?client_id=${client.user.id}&permissions=274877908032&scope=bot%20applications.commands`;
+      const response = `🤖 **Invite me to your server!**\n\n[Click here to add ${config.name} to your Discord server](${inviteUrl})\n\n✨ I'll bring my ${config.model} AI powers to help your community!\n\n**What I can do:**\n• Respond to mentions and DMs instantly\n• Chat in conversation channels\n• Support future slash commands\n• Bring AI-powered conversations to your server\n\n*Requires "Manage Server" permission to add me.*`;
+      await discordApiCall(() => msg.reply(response), '!invite reply', config.name);
+      log('Responded to !invite command');
+      return;
+    }
+
+    // Check for !permissions command
+    if (msg.content.trim().toLowerCase() === '!permissions' && client.user) {
+      const response = `🔐 **Bot Permissions Explained**\n\n**Required Permissions (274877908032):**\n• **Send Messages** - To respond to you\n• **Read Message History** - For conversation context\n• **Use Slash Commands** - Future slash command support\n• **Add Reactions** - Interactive responses\n• **Embed Links** - Rich message formatting\n• **Attach Files** - Share images/files\n\n**OAuth2 Scopes:**\n• **bot** - Basic bot functionality\n• **applications.commands** - Slash command support\n\n*These permissions ensure I work properly while keeping your server secure!*`;
+      await discordApiCall(() => msg.reply(response), '!permissions reply', config.name);
+      log('Responded to !permissions command');
       return;
     }
 
