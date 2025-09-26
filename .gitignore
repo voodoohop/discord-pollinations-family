@@ -43,4 +43,7 @@ bot.log
 
 # Config files that might contain secrets
 *.config.yaml
-fastagent.config.yaml 
+fastagent.config.yaml
+
+# Build output
+dist/

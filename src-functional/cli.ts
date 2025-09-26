@@ -66,7 +66,15 @@ Examples:
  */
 function createBotConfig(args: ReturnType<typeof parseArgs>): BotConfig {
   // Get global conversation channels from environment as fallback
-  const globalChannels = process.env.CONVERSATION_CHANNELS?.split(',').map(id => id.trim()).filter(Boolean) || [];
+  let globalChannels: string[] | undefined;
+  
+  if (process.env.CONVERSATION_CHANNELS && process.env.CONVERSATION_CHANNELS.trim()) {
+    globalChannels = process.env.CONVERSATION_CHANNELS.split(',').map(id => id.trim()).filter(Boolean);
+    // If after filtering we have no valid IDs, treat as undefined
+    if (globalChannels.length === 0) {
+      globalChannels = undefined;
+    }
+  }
   
   return {
     name: args.name || args.model,
@@ -114,7 +122,11 @@ async function main() {
     
     console.log(`🚀 Starting bot: ${config.name} (${config.model})`);
     console.log(`📝 Personality: ${config.personality}`);
-    console.log(`💬 Conversation channels: ${config.conversationChannelIds?.join(', ') || 'None configured'}`);
+    if (config.conversationChannelIds && config.conversationChannelIds.length > 0) {
+      console.log(`💬 Conversation channels: ${config.conversationChannelIds.join(', ')}`);
+    } else {
+      console.log(`💬 Conversation channels: DISABLED (bot will only respond to mentions and DMs)`);
+    }
     console.log(`🔧 Debug logs: Set DEBUG=app:* to see detailed logs`);
     console.log('');
     

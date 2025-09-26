@@ -120,16 +120,18 @@ const clientOptions = {
 };
 
 /**
- * Create message stream from Discord events
+ * Handle message processing errors without crashing the bot
  */
-async function* messageStream(client: Client) {
-  let resolver: (msg: Message) => void;
-  const getNextMessage = () => new Promise<Message>(resolve => { resolver = resolve; });
-  client.on(Events.MessageCreate, (msg: Message) => resolver && resolver(msg));
-
-  while (true) {
-    yield await getNextMessage();
+function handleMessageError(error: any, config: BotConfig, messageId: string) {
+  // Allow fatal token errors to propagate and terminate
+  if (error instanceof FatalTokenError) {
+    log('Fatal token error in message processing for %s, terminating bot', config.name);
+    process.exit(1);
   }
+  
+  // Log other errors but continue processing
+  log('Error processing message %s for %s: %O', messageId, config.name, error);
+  handleDiscordError(error, 'message processing', config.name);
 }
 
 /**
@@ -371,14 +373,8 @@ async function processMessage(
     }
 
   } catch (error: any) {
-    // Allow fatal token errors to propagate and terminate
-    if (error instanceof FatalTokenError) {
-      throw error;
-    }
-    
-    // Log other errors but continue processing
-    log('Error in processMessage for %s: %O', config.name, error);
-    handleDiscordError(error, 'processMessage', config.name);
+    // Re-throw all errors to be handled by the event handler's catch block
+    throw error;
   }
 }
 
@@ -415,11 +411,18 @@ export async function runBot(config: BotConfig, generateText: GenerateTextWithHi
     await sendInitialMessage(client, config, generateText);
   }, Math.random() * 2000 + 1000); // Shorter delay to stagger initial messages
 
-  // Create message stream and process in loop
-  for await (const msg of messageStream(client)) {
-    await withFatalErrorHandling(() => processMessage(msg, client, config, generateText));
-  }
+  // Set up event-driven message processing (non-blocking)
+  client.on(Events.MessageCreate, (msg: Message) => {
+    // Process message asynchronously without blocking other messages
+    processMessage(msg, client, config, generateText).catch((error) => {
+      handleMessageError(error, config, msg.id);
+    });
+  });
 
-  throw new Error('Bot loop ended unexpectedly');
+  // Keep the bot alive - the event handlers will process messages
+  return new Promise<never>(() => {
+    // This promise never resolves, keeping the bot running
+    log('Bot %s is now running with event-driven architecture', config.name);
+  });
 }
 
