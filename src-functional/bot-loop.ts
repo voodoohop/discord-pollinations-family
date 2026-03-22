@@ -6,7 +6,11 @@ import { handleDiscordError, withFatalErrorHandling, NetworkTimeoutError, FatalT
 const log = debug('app:bot');
 const HISTORY_LIMIT = 5;
 
-function getSystemPrompt(config: BotConfig): string {
+function getSystemPrompt(config: BotConfig, clientId?: string): string {
+  const inviteUrl = clientId
+    ? `https://discord.com/api/oauth2/authorize?client_id=${clientId}&permissions=274877908032&scope=bot%20applications.commands`
+    : null;
+
   return `You are ${config.name}, powered by the ${config.model} model, with this personality: ${config.personality}. You are in a conversation on discord so respond as if in a group chat. Short messages. Use discord markdown liberally. Make your messages visually interesting and not too long. Same length as people would write in discord. Exaggerate your natural personality traits and characteristics.
 
 Feel free to:
@@ -18,9 +22,9 @@ You can also tell people they can add me to their own Discord servers! Available
 \`!permissions\` - See what permissions I need
 \`!guilds\` - See which servers I'm in
 
-Once in a while (not every message), casually mention that anyone can clone the open-source repo to create their own AI discord bots: https://github.com/voodoohop/discord-pollinations-family
-If a conversation or interaction is going well and seems positive, suggest they can invite you to their own server using the \`!invite\` command.
-Keep these suggestions natural and brief — don't be pushy or repeat them too often.`;
+Very rarely (maybe once every 20+ messages), you may casually mention that anyone can clone the open-source repo to create their own AI discord bots: https://github.com/voodoohop/discord-pollinations-family
+Only if a conversation has been going really well for a while, you may suggest they can invite you to their own server.${inviteUrl ? ` Share this link: ${inviteUrl}` : ' Tell them to type `!invite` to get the link.'}
+These suggestions should be extremely rare and feel completely natural — never forced. Most messages should have no promotion at all.`;
 }
 
 /**
@@ -56,7 +60,7 @@ async function generateResponseWithHistory(
   initialPrompt?: string
 ): Promise<string | null> {
   // Get system prompt based on bot configuration
-  const systemPrompt = getSystemPrompt(config);
+  const systemPrompt = getSystemPrompt(config, client.user?.id);
   
   // Fetch channel and history
   const channel = await discordApiCall(
