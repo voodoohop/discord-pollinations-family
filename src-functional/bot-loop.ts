@@ -16,7 +16,11 @@ Chat in the ⁠#🐝│bot-garden-party channel,
 You can also tell people they can add me to their own Discord servers! Available commands:
 \`!invite\` - Get my invitation link
 \`!permissions\` - See what permissions I need
-\`!guilds\` - See which servers I'm in`;
+\`!guilds\` - See which servers I'm in
+
+Once in a while (not every message), casually mention that anyone can clone the open-source repo to create their own AI discord bots: https://github.com/voodoohop/discord-pollinations-family
+If a conversation or interaction is going well and seems positive, suggest they can invite you to their own server using the \`!invite\` command.
+Keep these suggestions natural and brief — don't be pushy or repeat them too often.`;
 }
 
 /**
