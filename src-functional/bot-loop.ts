@@ -11,20 +11,15 @@ function getSystemPrompt(config: BotConfig, clientId?: string): string {
     ? `https://discord.com/api/oauth2/authorize?client_id=${clientId}&permissions=274877908032&scope=bot%20applications.commands`
     : null;
 
-  return `You are ${config.name}, powered by the ${config.model} model, with this personality: ${config.personality}. You are in a conversation on discord so respond as if in a group chat. Short messages. Use discord markdown liberally. Make your messages visually interesting and not too long. Same length as people would write in discord. Exaggerate your natural personality traits and characteristics.
+  return `You are ${config.name}, powered by the ${config.model} model. You're part of the Pollinations.ai family — open-source, creative, playful, and a little quirky. Think cozy pixel art vibes, not corporate. Keep it casual, warm, and fun. Use lowercase freely. Be a maker who helps other makers.
 
-Feel free to:
-DM me anytime,
-Chat in the ⁠#🐝│bot-garden-party channel,
+Short discord-style messages. Use markdown. To mention someone, use their ID like <@123456>.
 
-You can also tell people they can add me to their own Discord servers! Available commands:
-\`!invite\` - Get my invitation link
-\`!permissions\` - See what permissions I need
-\`!guilds\` - See which servers I'm in
+Commands people can use: \`!invite\` \`!permissions\` \`!guilds\`
 
-Very rarely (maybe once every 20+ messages), you may casually mention that anyone can clone the open-source repo to create their own AI discord bots: https://github.com/voodoohop/discord-pollinations-family
-Only if a conversation has been going really well for a while, you may suggest they can invite you to their own server.${inviteUrl ? ` Share this link: ${inviteUrl}` : ' Tell them to type `!invite` to get the link.'}
-These suggestions should be extremely rare and feel completely natural — never forced. Most messages should have no promotion at all.`;
+Very rarely, you may mention the open-source repo: https://github.com/voodoohop/discord-pollinations-family
+${inviteUrl ? `If vibes are good, share your invite link: ${inviteUrl}` : ''}
+Keep any promotion super rare and natural.`;
 }
 
 /**
@@ -149,13 +144,13 @@ function formatHistory(messages: Message[], botId: string, config: BotConfig): A
   return messages
     .filter(msg => msg.content?.trim() && !msg.system)
     .map(msg => {
-      // Use the current bot's model name if it's this bot, otherwise use username
       const name = msg.author.id === botId ? config.model : msg.author.username;
+      const id = msg.author.id === botId ? '' : ` <@${msg.author.id}>`;
       const content = msg.content.length > 4000 ? msg.content.slice(0, 4000) + '...' : msg.content;
 
       return {
         role: msg.author.id === botId ? 'assistant' : 'user',
-        content: `[${name}]:\n${content}`
+        content: `[${name}${id}]:\n${content}`
       };
     });
 }
@@ -334,22 +329,21 @@ async function processMessage(
       return;
     }
 
-    log('Processing message: %s (Mentioned: %s, Conversation Channel: %s, DM: %s)', msg.content, isMentioned, isConvoChannel, isDM);
-    log('Channel ID: %s, Config conversation channels: %s', msg.channelId, config.conversationChannelIds);
-
-    // Random delay for conversation messages (not mentions or DMs)
-    if (isConvoChannel && !isDM) {
-      const randomValue = Math.random();
-      const randomMultiplied = randomValue * 120; // 0-120 second random component (2 minutes)
-      const randomFloored = Math.floor(randomMultiplied);
-      const delay = randomFloored + 60; // 60-180 second delay range (1-3 minutes)
-      log('Bot %s random calculation: Math.random()=%f, *120=%f, floored=%d, final delay=%d seconds', config.name, randomValue, randomMultiplied, randomFloored, delay);
-      log('Bot %s applying delay of %d seconds before responding...', config.name, delay);
+    if (msg.author.bot) {
+      // Bot messages: always respond but with long delay (3-10 min)
+      const delay = Math.floor(Math.random() * 420) + 180;
+      log('Bot %s applying %ds delay (bot-to-bot)', config.name, delay);
       await new Promise(r => setTimeout(r, delay * 1000));
-      log('Bot %s finished delay, proceeding with response', config.name);
-    } else {
-      log('Bot %s skipping delay - isConvoChannel: %s, isDM: %s', config.name, isConvoChannel, isDM);
+    } else if (isConvoChannel && !isMentioned) {
+      // Human in shared channel, not mentioned: 30% chance, no delay
+      if (Math.random() > 0.30) {
+        log('Skipping human message in shared channel (30%% response rate)');
+        return;
+      }
     }
+    // Human mentions and DMs: always respond, no delay
+
+    log('Processing message: %s (Mentioned: %s, Conversation Channel: %s, DM: %s)', msg.content, isMentioned, isConvoChannel, isDM);
 
     // Generate and send response using shared logic
     if ('sendTyping' in msg.channel && typeof msg.channel.sendTyping === 'function') {
